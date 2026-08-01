@@ -1,73 +1,74 @@
 # Архитектура
 
-<!-- translation-source: docs/architecture.md; source-sha256: f0b13ba08b0c31efc9c4fc5bdd25fdbc0e886df080c0e4e3c87368d620870e2f -->
+<!-- translation-source: docs/architecture.md; source-sha256: 924c2fa9a29cd32fb0c897347a68fe65271efb5fed25a0ee7da1361deeefe17a -->
+
+<!-- translation-source: docs/architecture.md; source-sha256: pending -->
 
 [English](../architecture.md)
 
 ```text
-Web panel / HTTP actions
+Web-панель / HTTP actions
           |
           v
-Application service + serial executor
+Рабочие настройки + serial orchestrator
           |
           v
 Reconciliation state machine
-     |               |
-     v               v
-state.json       journal.jsonl
+     |            |              |
+     v            v              v
+state.json   journal.jsonl   settings.json
           |
           v
-Validated Immich HTTP adapters
+Валидируемые HTTP adapters Immich
 ```
 
 ## Границы
 
-- Только публичный Immich HTTP API.
-- Нет Redis/PostgreSQL writes.
-- Нет Docker socket, container restart или job deletion.
-- Не более одной managed queue unpaused во время processing pass.
-- Неизвестные queues остаются unmanaged и отображаются в status.
+- Только публичный HTTP API Immich.
+- Без записи в Redis/PostgreSQL, Docker socket, restart контейнеров и удаления jobs.
+- Намеренно открывается не больше одной managed-очереди.
+- Ignored и неизвестные очереди никогда не изменяются.
+- Все mutations сериализованы в одном экономном Node.js process.
 
-## Основные состояния
+## Основной сценарий
 
 ```text
-IDLE -> PREPARING
-     -> GUARDED_IDLE -> CAPTURING_UPLOADS -> PROCESSING
-     -> RUNNING_STAGE <-> WAITING_FOR_QUIET
-     -> COMPLETED | GUARDED_IDLE
+IDLE -> PREPARING -> DISCOVERING -> INVENTORY_READY
+                               -> RUNNING_STAGE <-> WAITING_FOR_QUIET
+                               -> COMPLETED | GUARDED_IDLE
 
-Любой управляемый проход может остановиться в:
-PAUSED_BY_OPERATOR | AMBIGUOUS_START | DEGRADED | RELEASING
+GUARDED_IDLE -> CAPTURING_UPLOADS -> DISCOVERING
+
+загрузка во время DISCOVERING / INVENTORY_READY / processing
+  -> pause managed queues -> CAPTURING_UPLOADS -> полный restart DISCOVERING
 ```
+
+Включение автопилота и ручная команда «Проверить и обработать» обычно сразу переходят в `DISCOVERING`. Для каждой включённой очереди контроллер временно снимает паузу, запускает или принимает существующий missing generator `QueueAll`, следит за ним через queue-job API, фиксирует получившийся pending count и снова ставит managed-очередь на паузу. `INVENTORY_READY` удерживает найденные количества видимыми заданное короткое время перед обработкой.
+
+Immich выполняет `QueueAll` внутри целевой очереди, поэтому наполнить полностью paused-очередь без временного открытия невозможно. Polling сокращает это окно, но существующие или только что созданные jobs могут успеть начаться до возврата паузы. Active work не отменяется.
+
+## Режимы очередей
+
+- `managed` — принадлежит serial scheduler и стоит на паузе при загрузке/guarded idle.
+- `always-running` — участвует в discovery/order, но остаётся запущенной.
+- `ignored` — исключена из stages и никогда не меняется.
+
+Зависимости валидируются перед run. В частности, распознавание лиц идёт после обнаружения лиц.
 
 ## Durable mutation protocol
 
-Pause/resume:
+Pause/resume выполняются так:
 
 ```text
-PREPARED (fsync) -> API call -> read response verification -> VERIFIED -> COMMITTED
+PREPARED (fsync) -> API call -> проверка ответа/чтением -> VERIFIED -> COMMITTED
 ```
 
-После crash idempotent action reconciles по observed state. Если state совпадает с `before`, действие повторяется; если с `desired`, оно коммитится; третье состояние считается external override.
+После crash идемпотентные actions сверяются с наблюдаемым состоянием. Missing-check start неидемпотентен: после неоднозначного сетевого результата контроллер ищет `QueueAll` с подходящим timestamp и при недостатке доказательств спрашивает оператора. Слепого автоматического retry нет.
 
-Legacy start не является idempotent. После неясного сетевого результата контроллер не делает retry. Он ищет QueueAll evidence с timestamp не старше prepared action; при недостатке доказательств переходит в `AMBIGUOUS_START`.
+`state.json` и `settings.json` используют temporary write, fsync файла, atomic rename и, где возможно, fsync каталога. `journal.jsonl` дописывается с fsync. Повреждённый state сохраняется, а управление становится read-only. Неизменившиеся ticks и настройки не перезаписывают snapshots.
 
-## State storage
+## Приоритет загрузки и ресурсы
 
-- `state.json`: temp write, file fsync, atomic rename, directory fsync где поддерживается.
-- `journal.jsonl`: append и fsync на каждую фазу mutation.
-- Corrupt state не перезаписывается и переводит сервис в read-only.
-- Все действия сериализуются внутри процесса.
-- Неизменившийся tick не переписывает `state.json`; CPU hysteresis сохраняется только при изменении таймера или throttled state.
+В guarded idle managed-очереди уже стоят на паузе. Polling статистики обнаруживает рост assets за настроенный интервал, который валидируется ниже 30 секунд. Загрузка во время любого активного прохода сразу останавливает dispatch, после чего полная инвентаризация запускается заново через фиксированный или опционально зависящий от числа assets период тишины.
 
-## Upload priority
-
-Armed autopilot держит queues paused ещё до первого файла. Поэтому отсутствует гонка «успеть поставить паузу после появления первого job». Если upload появляется во время processing, controller pauses dispatch, ждёт active job и возвращается к capture quiet timer.
-
-## Idle resource policy
-
-- Active processing polls Immich каждые 5 секунд.
-- `GUARDED_IDLE` polls каждые 10 секунд, что оставляет детекцию загрузки ниже 30 секунд.
-- Standby без активного run polls каждые 30 секунд.
-- CPU sampling существует только в processing phases.
-- Docker image не запускает отдельный Node.js healthcheck; `/healthz` и `/readyz` остаются доступны внешнему мониторингу.
+Discovery/processing обычно опрашиваются каждые 5 секунд, guarded idle — 10, standby — 30. CPU sampling работает только в фазах, где нагрузка показывается или может приостановить dispatch. Отдельного Node.js healthcheck process нет.

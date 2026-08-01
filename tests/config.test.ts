@@ -8,7 +8,7 @@ describe('configuration', () => {
     expect(config.mode).toBe('observe');
     expect(config.dryRun).toBe(true);
     expect(config.control.enabled).toBe(false);
-    expect(config.api.allowLegacyStart).toBe(false);
+    expect(config.api.allowLegacyStart).toBe(true);
     expect(config.server.authentication).toBe('auto');
     expect(config.server.port).toBe(8005);
     expect(config.autopilot.autoEndAfterMs).toBe(30 * 60_000);

@@ -1,32 +1,37 @@
 # Совместимость с Immich
 
-<!-- translation-source: docs/compatibility.md; source-sha256: 43fe07cef5dda3cae079410a8b572feefe43396391551ff48defa0d0b2a61738 -->
+<!-- translation-source: docs/compatibility.md; source-sha256: 01fd1fc5fa3803828cc9c5366c7b524a1cd1245aa61d44dd8b348576bd008fcf -->
+
+<!-- translation-source: docs/compatibility.md; source-sha256: pending -->
 
 [English](../compatibility.md)
 
-Проверенная база: Immich `v3.1.0` и source snapshot `483b375c26c91e9ad3d42666fff58b3fbda1164a`.
-
-Используемые endpoints:
+Проверенный baseline: Immich `v3.1.0`, source snapshot `483b375c26c91e9ad3d42666fff58b3fbda1164a`.
 
 | Endpoint | Назначение | Статус Immich |
 |---|---|---|
-| `GET /api/server/version` | version gate | public/stable |
-| `GET /api/server/features` | feature-aware pipeline | public |
-| `GET /api/server/statistics` | upload activity | admin/stable |
-| `GET /api/queues` | queue states/counters | alpha |
-| `PUT /api/queues/{name}` | pause/resume | alpha |
-| `GET /api/queues/{name}/jobs` | recovery evidence | alpha, ограниченная выборка |
-| `PUT /api/jobs/{name}` | optional missing repair | deprecated с v2.4.0 |
+| `GET /api/server/version` | Проверка версии | Public/stable |
+| `GET /api/server/features` | Feature-aware pipeline | Public |
+| `GET /api/server/statistics` | Обнаружение загрузки | Admin/stable |
+| `GET /api/queues` | Состояние и счётчики | Alpha |
+| `PUT /api/queues/{name}` | Pause/resume | Alpha |
+| `GET /api/queues/{name}/jobs` | Доказательство `QueueAll` и recovery | Alpha, ограниченный список |
+| `PUT /api/jobs/{name}` | Missing check с `force=false` | Deprecated с v2.4.0, но используется admin UI Immich |
 
-Runtime ответы проверяются Zod schemas. Неизвестная queue не включается в managed allowlist. Неизвестная major-версия при strict mode блокирует control.
+Runtime responses валидируются через Zod. Неизвестные queues не попадают в managed allowlist. В strict mode непроверенная major-версия Immich блокирует mutations.
 
-## Ограничения counters
+Девять bulk names по умолчанию: создание миниатюр, извлечение metadata, sidecar, smart search, duplicate detection, face detection, facial recognition, OCR и video conversion. Их QueueAll mappings проверены по серверной реализации очередей, включая sidecar и facial recognition.
 
-- `completed` и `failed` retention-зависимы.
-- Job inspection ограничен приблизительно первой тысячей элементов.
-- `isPaused` — глобальное состояние queue; `statistics.paused` — количество jobs в paused list.
-- `backgroundTask` нельзя ставить на паузу через Immich.
+## Поведение discovery
 
-## Почему missing выполняется после drain
+Missing endpoint добавляет generator `QueueAll` в собственную целевую очередь. Поэтому paused-очередь не может создать инвентаризацию до временного resume. Оркестратор работает по одной очереди, наблюдает ожидаемый generator, после его исчезновения ставит managed-очередь на паузу и фиксирует оставшийся pending count. Существующий после restart generator принимается без дублирования; после прерывания загрузкой за ним выполняется ещё одна новая проверка.
 
-Legacy endpoint проверяет только active jobs. Большинство QueueAll jobs не имеют deduplication key. Start поверх waiting/paused backlog способен добавить повторную массовую работу. Поэтому controller сначала ждёт полный ноль pending states и только потом допускает один repair-pass.
+Endpoint неидемпотентен, а replacement bulk-start endpoint в проверенной версии отсутствует. Неоднозначная доставка требует решения оператора вместо автоматического retry.
+
+## Ограничения счётчиков
+
+- `completed` и `failed` зависят от retention policy Immich.
+- Просмотр jobs ограничен примерно первой тысячей записей.
+- `isPaused` — глобальное состояние очереди, `statistics.paused` — число jobs в paused list.
+- Pause не отменяет active jobs.
+- Immich не разрешает ставить `backgroundTask` на паузу.

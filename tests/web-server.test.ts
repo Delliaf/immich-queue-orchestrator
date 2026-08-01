@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Script } from 'node:vm';
 import { parseConfig } from '../src/config/schema.js';
 import type { QueueOrchestrator } from '../src/controller/orchestrator.js';
+import { defaultRuntimeSettings } from '../src/settings/schema.js';
 import { createWebServer } from '../src/web/server.js';
 import { UI_HTML } from '../src/web/ui.js';
 
@@ -81,12 +82,44 @@ describe('web server security', () => {
     expect(response.statusCode).toBe(200);
   });
 
+  it('validates and saves runtime settings through the panel API', async () => {
+    const config = parseConfig({});
+    const settings = defaultRuntimeSettings(config);
+    const updateSettings = vi.fn().mockResolvedValue(true);
+    const server = createServer({ runtimeSettings: () => settings, updateSettings });
+    const response = await server.inject({
+      method: 'PUT',
+      url: '/api/settings',
+      headers: { authorization: 'Bearer test-password' },
+      payload: settings,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ saved: true });
+    expect(updateSettings).toHaveBeenCalledOnce();
+  });
+
+  it('passes the selected queue strategy when releasing control', async () => {
+    const release = vi.fn().mockResolvedValue(undefined);
+    const server = createServer({ release });
+    const response = await server.inject({
+      method: 'POST',
+      url: '/api/actions/release',
+      headers: { authorization: 'Bearer test-password' },
+      payload: { strategy: 'keep-managed-paused' },
+    });
+    expect(response.statusCode).toBe(202);
+    expect(release).toHaveBeenCalledWith('keep-managed-paused');
+  });
+
 });
 
 function createServer(overrides: Record<string, unknown> = {}): ReturnType<typeof createWebServer> {
   const config = parseConfig({ server: { host: '127.0.0.1', port: 8080 } });
+  const settings = defaultRuntimeSettings(config);
   const orchestrator = {
     effectiveConfig: () => config,
+    runtimeSettings: () => settings,
+    updateSettings: () => Promise.resolve(false),
     isAuthorized: (password: string | undefined) => password === 'test-password',
     status: () => ({ ready: true, apiConnected: true }),
     processBacklog: () => Promise.resolve(),

@@ -15,8 +15,8 @@ export interface CpuStatus {
 }
 
 export class CpuMonitor {
-  readonly #sampleIntervalMs: number;
-  readonly #windowMs: number;
+  #sampleIntervalMs: number;
+  #windowMs: number;
   readonly #now: () => Date;
   #previous: CpuTimes | null = null;
   #samples: Array<{ timestamp: number; value: number }> = [];
@@ -46,6 +46,15 @@ export class CpuMonitor {
 
   isRunning(): boolean {
     return this.#timer !== null;
+  }
+
+  configure(sampleIntervalMs: number, windowMs: number): void {
+    if (sampleIntervalMs === this.#sampleIntervalMs && windowMs === this.#windowMs) return;
+    const restart = this.isRunning();
+    this.stop();
+    this.#sampleIntervalMs = sampleIntervalMs;
+    this.#windowMs = windowMs;
+    if (restart) this.start();
   }
 
   sample(): number | null {

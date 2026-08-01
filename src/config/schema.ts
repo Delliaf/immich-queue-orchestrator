@@ -44,7 +44,7 @@ const RawConfigSchema = z.object({
     .object({
       url: HttpUrlSchema.default('http://immich-server:2283/api'),
       timeout: DurationSchema.default(10_000),
-      allowLegacyStart: z.boolean().default(false),
+      allowLegacyStart: z.boolean().default(true),
       strictMajorVersion: z.boolean().default(true),
       supportedMajorVersions: z.array(z.number().int().positive()).default([3]),
     })

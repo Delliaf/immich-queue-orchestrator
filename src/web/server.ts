@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { QueueOrchestrator } from '../controller/orchestrator.js';
+import { RuntimeSettingsSchema } from '../settings/schema.js';
 import { ConflictError, ControlDisabledError, errorMessage } from '../utils/errors.js';
 import { UI_HTML } from './ui.js';
 
@@ -29,6 +30,19 @@ export function createWebServer(orchestrator: QueueOrchestrator): FastifyInstanc
 
   app.get('/api/status', { preHandler: authorize }, () => orchestrator.status());
   app.get('/api/config/effective', { preHandler: authorize }, () => orchestrator.effectiveConfig());
+  app.get('/api/settings', { preHandler: authorize }, () => orchestrator.runtimeSettings());
+  app.put('/api/settings', { preHandler: authorize }, async (request, reply) => {
+    const parsed = RuntimeSettingsSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ message: z.prettifyError(parsed.error) });
+    try {
+      const changed = await orchestrator.updateSettings(parsed.data);
+      return reply.send({ saved: changed });
+    } catch (error) {
+      if (error instanceof ConflictError) return reply.code(409).send({ message: error.message });
+      if (error instanceof ControlDisabledError) return reply.code(403).send({ message: error.message });
+      return reply.code(500).send({ message: errorMessage(error) });
+    }
+  });
 
   action('/api/actions/process', () => orchestrator.processBacklog());
   action('/api/actions/capture-begin', () => orchestrator.captureBegin());
@@ -36,7 +50,13 @@ export function createWebServer(orchestrator: QueueOrchestrator): FastifyInstanc
   action('/api/actions/arm-autopilot', () => orchestrator.armAutopilot());
   action('/api/actions/pause', () => orchestrator.pauseController());
   action('/api/actions/resume', () => orchestrator.resumeController());
-  action('/api/actions/release', () => orchestrator.release());
+  app.post('/api/actions/release', { preHandler: authorize }, async (request, reply) => {
+    const parsed = z
+      .object({ strategy: z.enum(['keep-managed-paused', 'restore-original']).default('keep-managed-paused') })
+      .safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ message: z.prettifyError(parsed.error) });
+    return handleAction(reply, () => orchestrator.release(parsed.data.strategy));
+  });
 
   app.post('/api/actions/resolve-ambiguous', { preHandler: authorize }, async (request, reply) => {
     const parsed = z.object({ decision: z.enum(['assume-sent', 'retry-start', 'abort']) }).safeParse(request.body);

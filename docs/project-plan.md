@@ -4,79 +4,61 @@
 
 ## Status
 
-Version `0.1.3` implements the minimum safe orchestrator and is published for `linux/amd64` and `linux/arm64`. The API contract baseline is Immich `v3.1.0`. Compatibility with queue endpoints must be revalidated for later Immich major versions before strict control is enabled.
+Version `0.2.0` implements the inventory-first workflow and panel-managed automation settings. The API contract baseline is Immich `v3.1.0`; queue endpoints must be revalidated for later major versions before strict control is enabled.
 
 ## Product goal
 
-Provide the manual workflow used on small home servers as a lightweight, recoverable controller:
+Automate the low-power home-server workflow:
 
-1. keep heavy queues paused before uploads begin;
-2. detect uploads within 30 seconds;
-3. wait for the configured quiet period;
-4. drain one processing queue at a time;
-5. optionally run one missing-jobs repair pass only after the backlog is empty;
-6. return to guarded idle.
+1. keep heavy queues paused before uploads;
+2. detect uploads within 30 seconds and pause immediately;
+3. after quiet, run every enabled missing check;
+4. pause each managed queue after discovery and expose its inventory count;
+5. process queues one at a time in operator-defined order;
+6. rescan from the beginning if another upload arrives;
+7. return to guarded idle, with optional periodic discovery.
 
-## Non-negotiable safety rules
+## Safety and resource rules
 
-- Use only the public Immich HTTP API.
-- Never write directly to Redis or PostgreSQL.
-- Never require the Docker socket.
-- Never delete jobs or force reprocessing by default.
-- Keep at most one managed queue unpaused.
-- Treat an API error as unknown state, never as an empty queue.
-- Persist intent before a mutation and verify observed state afterward.
-- Never retry an ambiguous non-idempotent start automatically.
-- Respect manual changes made in the Immich UI.
-
-## Resource model
-
+- Public Immich HTTP API only; no Redis/PostgreSQL or Docker socket.
+- Never delete jobs or cancel active work.
+- Deliberately open at most one managed queue.
+- Treat API errors as unknown state, never empty state.
+- Journal intent before mutation and verify afterward.
+- Never blindly retry an ambiguous missing start.
+- Respect manual changes in Immich.
 - One Node.js 24 LTS process with a 64 MiB heap target.
-- Adaptive polling: active, guarded-idle, and standby intervals.
-- CPU sampling only while processing, when the sample can affect dispatch.
-- Change-only state persistence to avoid unnecessary disk writes.
-- No periodic Node.js child process for Docker healthchecks.
-- Default Compose limits: `192m` memory and `0.25` CPU.
+- CPU sampling only during discovery/processing.
+- Guarded idle polling below 30 seconds; slower standby polling.
+- Change-only persistence and no child-process healthcheck.
 
-## Delivered in 0.1.0
+## Delivered in 0.2.0
 
-- Validated Immich queue client and runtime response schemas.
-- Observe-first startup and explicit autopilot arming.
-- Guarded upload capture with a configurable quiet period.
-- Serial pipeline with drain-first missing repair.
-- Durable state snapshot and append-only action journal.
-- Restart reconciliation and ambiguous-start operator decisions.
-- Manual override detection and release-control behavior.
-- Embedded panel with optional password authentication and rate limiting.
-- CPU observation and opt-in hysteresis throttling.
-- Hardened Docker and Compose examples.
-- Automated tests, Docker CI, multi-architecture releases, provenance, and Dependabot.
+- Immediate discovery on autopilot and manual runs.
+- All nine requested queues, including sidecar and ordered face stages.
+- Per-queue order, missing switch, and managed/always-running/ignored policies.
+- Upload interruption during discovery and processing with a complete rescan.
+- Optional adaptive quiet time and periodic discovery.
+- Persistent validated settings with no-change write suppression.
+- Tabbed English-first panel with live discovered counts and release choice.
+- QueueAll adoption/reconciliation across restarts.
+- Automated regression tests for discovery, upload interruption, periodic scans, settings, release behavior, and UI API.
 
-## Next milestones
+## Next validation milestones
 
-### Compatibility hardening
-
-- Test against every supported Immich release line.
-- Record endpoint changes and validated source snapshots.
-- Add fixtures for any new queue response variants.
-
-### Operational validation
-
-- Run dry-run observation against a real library.
-- Exercise upload interruption, container restart, API outage, and manual override scenarios.
-- Measure idle wakeups and memory on representative low-power mini PCs.
-
-### Release maturity
-
-- Promote defaults only after real-library validation.
-- Publish upgrade and rollback notes for every behavior-changing release.
+- Exercise a large real Immich library and record QueueAll timing for every stage.
+- Test upload interruption, restart, API outage, manual override, and always-running policies on real hardware.
+- Measure idle memory, wakeups, and CPU on representative mini PCs.
+- Revalidate endpoint contracts for each supported Immich major release.
+- Refine defaults only from measured real-library behavior.
 
 ## Acceptance criteria
 
-- Upload activity is detected within the configured interval and always below 30 seconds in guarded idle.
-- Processing never intentionally opens more than one managed queue.
-- Restart recovery does not duplicate an ambiguous legacy start.
-- A week of idle operation does not perform active-rate polling or CPU sampling.
-- Unchanged ticks do not rewrite durable state.
-- A new installation never resumes pre-existing queues without an explicit operator command.
-- The public container can be pulled anonymously on both supported architectures.
+- Arming against an existing library discovers missing work without a preceding upload.
+- Upload activity is detected within the configured interval, always below 30 seconds in guarded idle.
+- Every enabled queue is scanned and its inventory displayed before sequential processing.
+- A new upload pauses managed queues and causes a complete post-quiet rescan.
+- Facial recognition never precedes face detection.
+- A week of idle operation performs no active-rate polling or CPU sampling.
+- Unchanged ticks/settings do not rewrite durable snapshots.
+- A fresh installation never resumes queues without explicit operator action.

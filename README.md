@@ -2,37 +2,43 @@
 
 [Русская версия](README.ru.md)
 
-An independent controller for Immich background queues on home servers with limited CPU and memory.
+A lightweight controller for Immich background queues on home servers with limited CPU and memory.
 
-> Status: early release `0.1.5`. API contracts were validated against Immich `v3.1.0`. Start with `dryRun: true` on a real library and keep a backup.
+> Status: early release `0.2.0`. API contracts were validated against Immich `v3.1.0`. Keep a current backup and test against your Immich version before relying on unattended operation.
 
 ## What it does
 
-- keeps heavy processing queues paused while files are being uploaded;
-- detects new assets and waits for a configurable quiet period, 30 minutes by default;
-- processes exactly one managed queue at a time;
-- drains already queued jobs first and can then run one optional missing-repair pass;
-- shows queues, the current phase, and CPU load in an embedded web panel;
-- recovers after restarts through atomic state and an append-only action journal;
-- stops for an operator decision when a legacy start has an ambiguous result;
+- pauses managed processing queues as soon as a new upload is detected;
+- immediately asks Immich to check for missing work when autopilot is armed or **Scan and process** is pressed;
+- briefly shows the discovered per-queue inventory, then processes one queue at a time;
+- interrupts discovery or processing when another upload starts, waits for quiet, and scans again;
+- supports `managed`, `always running`, and `ignored` policies for every queue;
+- optionally adapts the upload quiet period to the number of new assets and runs periodic missing checks;
+- shows live queues, discovered counts, CPU load, and all runtime settings in an embedded panel;
+- writes durable state and settings only when their content changes;
 - never writes directly to Redis or PostgreSQL and does not require the Docker socket.
 
 ## Autopilot flow
 
 ```text
-GUARDED_IDLE (managed queues paused)
-  -> new photos or videos arrive
-  -> CAPTURING_UPLOADS
-  -> 30 minutes without new uploads
-  -> metadata -> storage -> thumbnails -> ML/OCR/video
-  -> GUARDED_IDLE
+ARM AUTOPILOT
+  -> scan every enabled queue for missing work
+  -> pause each managed queue after its scan and show found counts
+  -> process managed queues sequentially
+  -> GUARDED IDLE (managed queues paused)
+
+new upload at any point
+  -> pause managed queues immediately
+  -> wait for the configured quiet period
+  -> scan all enabled queues again
+  -> process sequentially
 ```
 
-If uploading resumes during processing, the current active job is allowed to finish, dispatch of the next job is paused, and the upload quiet timer starts again.
+Immich runs its bulk missing check inside the same queue that receives the discovered jobs. During inventory the orchestrator therefore opens one queue temporarily, observes its `QueueAll` job, and pauses it as soon as discovery finishes. Already-active jobs cannot be cancelled and may finish normally.
 
-## Simple setup in an existing Immich Docker Compose file
+## Simple Docker Compose setup
 
-Add this service under the existing `services:` section:
+Add this service under the existing `services:` section of Immich:
 
 ```yaml
   immich-queue-orchestrator:
@@ -49,81 +55,68 @@ Add this service under the existing `services:` section:
     restart: unless-stopped
 ```
 
-Add this entry to the existing top-level `volumes:` section:
+Add the named volume at the top level:
 
 ```yaml
 volumes:
   immich_queue_orchestrator_data:
 ```
 
-Add two values to the existing Immich `.env` file:
+Add these values to the existing Immich `.env` file:
 
 ```dotenv
 ORCHESTRATOR_API_KEY=a_dedicated_Immich_API_key_for_this_orchestrator
-# Optional. Leave empty if a password is unnecessary on your trusted home network.
+# Optional. Leave empty on a trusted home network if a panel password is unnecessary.
 ORCHESTRATOR_ADMIN_PASSWORD=
 ```
 
-The default `server.authentication: auto` mode behaves as follows:
+Create the API key in an Immich administrator account and grant only:
 
-- an omitted or empty variable leaves the panel open without a password;
-- any non-empty value makes the panel request that password;
-- there are no forced length, digit, or special-character requirements.
+- `queue.read`
+- `queue.update`
+- `server.statistics`
+- `job.create`
+- `queueJob.read`
 
-The built-in image configuration already contains the Immich service URL, upload timing, sequential processing, and low-memory Node.js settings. `ORCHESTRATOR_API_KEY` deliberately has an application-specific name so another service such as Immich Power Tools can use its own Immich API key in the same `.env`. The API key and the optional panel password are read directly from the same `.env` that Immich already uses. The real `.env` is excluded from Git and the Docker build context; only an empty `.env.example` is committed. The panel password is a normal password for this panel, not an API token or an Immich key. When authentication is disabled, the panel displays a prominent warning. Do not expose that mode to the internet.
+The application-specific `ORCHESTRATOR_API_KEY` name lets other tools in the same `.env` use separate keys. The optional panel password is a normal password, not an API token; any non-empty value enables login and no password-composition rules are imposed. Keep `.env` out of Git and do not expose a passwordless panel to the internet.
 
-Then run `docker compose up -d immich-queue-orchestrator`, open `http://<server-ip>:8005`, enter the panel password if configured, and click **Arm autopilot** once. In armed idle, managed queues are already paused. Upload activity is normally detected in about 10 seconds and the configured interval must remain below 30 seconds. The armed state is stored in the named volume and survives restarts.
+Start it and open the panel:
 
-The default `8005:8005` mapping works through both the server's LAN and ZeroTier addresses. From another device, `127.0.0.1` points to that device itself, not to the server; use `http://<server-zerotier-ip>:8005`. To expose the panel only through ZeroTier, change the port mapping to `<server-zerotier-ip>:8005:8005`.
+```bash
+docker compose up -d immich-queue-orchestrator
+```
 
-A ready-to-merge service definition is available in [`compose.simple.yml`](compose.simple.yml).
+Open `http://<server-ip>:8005` and click **Arm autopilot**. From another device, `127.0.0.1` refers to that device, not the server. For ZeroTier use `http://<server-zerotier-ip>:8005`. To bind only to ZeroTier, publish `<server-zerotier-ip>:8005:8005` instead.
 
-This service does not need `MAX_CONCURRENT_JOBS`: it keeps only one managed queue open. Immich itself controls the number of jobs executing inside that queue.
+A copy-ready fragment is available in [`compose.simple.yml`](compose.simple.yml).
 
-With `ALLOW_LEGACY_START=false`, only jobs already created by Immich are processed. After validating the orchestrator against your Immich version, set it to `true` to enable the sequential **missing jobs** repair pass.
+Installing or restarting a fresh container never resumes queues by itself. It waits for an explicit panel action. An unfinished run already owned and persisted by the orchestrator can resume after restart.
 
-## Advanced setup with a separate YAML file
+## Panel and settings
 
-1. Create a dedicated API key in an Immich administrator account. Queued-only mode needs `queue.read`, `queue.update`, and `server.statistics`. Missing repair additionally needs `job.create` and `queueJob.read`; the latter supports safe recovery from an ambiguous start.
-2. Copy the configuration:
+The panel has separate **Overview**, **Queues**, **Automation**, **CPU load**, and **Advanced** tabs. Runtime settings are saved atomically to `/data/settings.json`; secrets and bootstrap networking remain in `.env` or the mounted YAML file. An unchanged save or polling tick does not rewrite the disk.
 
-   ```bash
-   cp orchestrator.example.yml orchestrator.yml
-   mkdir -p secrets orchestrator-data
-   printf '%s' 'YOUR_IMMICH_API_KEY' > secrets/immich_api_key.txt
-   printf '%s' 'YOUR_PANEL_PASSWORD' > secrets/orchestrator_admin_password.txt
-   ```
+The default queue order is:
 
-3. Attach the service to the Docker network where `immich-server` is reachable, then start it:
+1. Thumbnail generation
+2. Metadata extraction
+3. Sidecar metadata
+4. Smart search
+5. Duplicate detection
+6. Face detection
+7. Facial recognition
+8. OCR
+9. Video conversion
 
-   ```bash
-   docker compose -f compose.example.yml up -d --build
-   ```
+Every queue is `managed` and has **Check missing** enabled by default. Facial recognition remains after face detection. The order, policy, missing check, quiet periods, polling, discovery timeout, optional adaptive delay, optional periodic discovery, and CPU guard can all be changed in the panel. Periodic discovery and adaptive quiet are disabled by default.
 
-4. Open the panel locally or through an SSH tunnel at `http://127.0.0.1:8005` and enter the panel password.
-5. Keep `dryRun: true` for the first start and verify the Immich version, queues, and effective configuration.
-6. Set `dryRun: false`, recreate the container, and click **Arm autopilot** to enable control.
+When autopilot is turned off, the panel asks what to do every time. The default choice keeps managed queues paused; the alternative restores the queue states captured when control began.
 
-Installing or restarting the container does not resume queues by itself. A new installation waits for an explicit command. Only an unfinished run previously owned and persisted by the orchestrator resumes automatically.
+## Manual operation
 
-## Modes
+**Scan and process** performs the same inventory-first pass without permanently arming autopilot. If an upload starts during that manual pass, managed queues are paused immediately; after upload silence the complete scan and sequential pass restart.
 
-- `observe`: status and CPU monitoring only;
-- `manual-session`: one **Process backlog** command followed by an automatic pass;
-- `capture-assisted`: manual **Start capture** and **Uploads finished** commands;
-- `autopilot`: permanent guarded idle, automatic upload detection, and processing passes;
-- `scheduled`: reserved by the configuration schema; the scheduling loop is not enabled in `0.1.0`.
-
-## Missing-repair safety
-
-`allowLegacyStart` is disabled by default. Without it, the controller processes only jobs that Immich has already created.
-
-When the repair pass is enabled:
-
-1. the queue must first reach zero `active + waiting + paused + delayed` jobs;
-2. one `force=false` start is issued;
-3. a network failure around that start is treated as ambiguous;
-4. the start is never retried automatically—the operator decides in the panel.
+The missing check uses Immich's `force=false` bulk job. A network failure around that non-idempotent request is never retried silently: the panel asks the operator whether to accept, retry, or abort it.
 
 ## Documentation
 

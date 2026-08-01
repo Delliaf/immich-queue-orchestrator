@@ -1,52 +1,56 @@
 # Восстановление
 
-<!-- translation-source: docs/recovery.md; source-sha256: cc560220bfed94814d15a2c8d8f671d4f02798e5b6d54eb3beefd999e7416a64 -->
+<!-- translation-source: docs/recovery.md; source-sha256: db3a336cf401601ab469bd2056fc58821ce24a569a69e7d63198126494a5d050 -->
+
+<!-- translation-source: docs/recovery.md; source-sha256: pending -->
 
 [English](../recovery.md)
 
 ## Restart контейнера
 
-- Без persisted run: только observe, очереди не изменяются.
-- С собственным незавершённым run и `resumePersistedRun: true`: journal reconciliation и продолжение.
-- С corrupt state: read-only, исправление только вручную после резервной копии файлов `/data`.
+- Нет persisted run: только наблюдение, очереди не меняются.
+- Есть незавершённый owned run и `resumePersistedRun: true`: journal сверяется и работа продолжается.
+- Discovery generator ещё существует: он принимается без повторного start.
+- Повреждён `state.json`: файл сохраняется, контроллер становится read-only до ручного backup/repair.
+- Нет или повреждён `settings.json`: startup завершается ошибкой валидации, а настройки оператора не заменяются молча.
 
-## Manual override
+## Прерывание загрузкой
 
-Если пользователь меняет pause/resume в Immich UI и observed state отличается от committed desired state, controller переходит в `PAUSED_BY_OPERATOR`. Он не борется с пользователем каждые пять секунд.
+Загрузка во время discovery, показа инвентаризации или processing немедленно ставит managed-очереди на паузу. Уже active generator `QueueAll` может закончиться. После upload quiet period старая инвентаризация сбрасывается и все включённые очереди сканируются заново; после принятого прерванного generator выполняется ещё одна свежая проверка.
 
-Действия:
+## Ручное изменение
 
-- «Продолжить контроллер» — принять текущий run и продолжить;
-- «Освободить управление» — восстановить queue states, сохранённые в начале run, и удалить активное владение.
+Если пользователь меняет очередь в Immich и наблюдаемое состояние отличается от committed desired state, контроллер переходит в `PAUSED_BY_OPERATOR`, а не спорит с пользователем.
 
-## AMBIGUOUS_START
+- «Продолжить контроллер» принимает текущий run и продолжает.
+- «Отпустить управление» каждый раз спрашивает: оставить managed-очереди на паузе или восстановить состояния, сохранённые в начале run. По умолчанию выбрана пауза.
 
-Возникает, если `PUT /api/jobs/{queue}` мог дойти до Immich, но подтверждение не получено или процесс погиб до durable commit.
+## Неоднозначный missing start
 
-Панель предлагает:
+`PUT /api/jobs/{queue}` неидемпотентен. Если запрос мог дойти до Immich, но нет убедительного ответа или подходящего по времени `QueueAll`, контроллер останавливается в `AMBIGUOUS_START`.
 
-- `assume-sent`: считать start доставленным и наблюдать очередь;
-- `retry-start`: явное разрешение оператора на потенциальный повтор;
-- `abort`: восстановить исходные queue states и завершить run.
+- `assume-sent` — считать запрос доставленным и наблюдать очередь;
+- `retry-start` — явно разрешить потенциально повторный запрос;
+- `abort` — закончить run и отпустить управление выбранным способом.
 
-Перед решением проверьте Immich Jobs UI. Автоматического retry нет.
+Перед решением проверьте Jobs UI Immich. Автоматического retry нет.
 
 ## API недоступен
 
-Ошибка poll не означает пустую очередь. Controller сохраняет state и повторяет read-only poll; новые mutations не выполняются, пока observation не восстановлен. Health endpoint остаётся доступен, readiness становится false.
+Ошибка чтения никогда не означает пустую очередь. Контроллер сохраняет state, прекращает новые mutations и повторяет observation. `/healthz` остаётся доступным, а `/readyz` сообщает degraded state.
 
-## Резервное копирование
+## Резервная копия
 
-Сохраняйте volume `/data` вместе с конфигурацией. API key и, если используется, пароль панели резервируются отдельно как secrets. Не редактируйте `journal.jsonl` во время работы контейнера.
+Копируйте volume `/data`: там находятся `state.json`, `journal.jsonl` и `settings.json`, но нет API key или пароля панели. `.env`/mounted secrets копируйте отдельно. Не редактируйте файлы при работающем контейнере.
 
-## Ошибка прав state volume
+## Ошибка прав volume
 
-Начиная с `0.1.3` новые named volumes получают владельца непривилегированного runtime-пользователя. Если volume создан предыдущим релизом, а в логах есть `EACCES` для `/data/journal.jsonl`, остановите сервис и один раз исправьте владельца именно этого volume:
+Новые named volumes инициализируются для non-root runtime user. Если старый volume выдаёт `EACCES`, остановите сервис и один раз исправьте именно этот заранее проверенный volume:
 
 ```bash
 docker compose stop immich-queue-orchestrator
 docker run --rm --user root \
-  -v <имя-compose-volume>:/data \
+  -v <compose-volume-name>:/data \
   ghcr.io/delliaf/immich-queue-orchestrator:latest \
   chown -R node:node /data
 docker compose up -d immich-queue-orchestrator

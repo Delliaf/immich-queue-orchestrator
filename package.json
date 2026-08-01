@@ -1,6 +1,6 @@
 {
   "name": "immich-queue-orchestrator",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "description": "A safe, resource-aware queue orchestrator for Immich",
   "type": "module",
   "private": true,

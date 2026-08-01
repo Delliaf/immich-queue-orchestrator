@@ -6,13 +6,13 @@
 Web panel / HTTP actions
           |
           v
-Application service + serial executor
+Runtime settings + serial orchestrator
           |
           v
 Reconciliation state machine
-     |               |
-     v               v
-state.json       journal.jsonl
+     |            |              |
+     v            v              v
+state.json   journal.jsonl   settings.json
           |
           v
 Validated Immich HTTP adapters
@@ -21,51 +21,50 @@ Validated Immich HTTP adapters
 ## Boundaries
 
 - Public Immich HTTP API only.
-- No Redis or PostgreSQL writes.
-- No Docker socket, container restarts, or job deletion.
-- At most one managed queue is unpaused during a processing pass.
-- Unknown queues remain unmanaged and are shown in status output.
+- No Redis/PostgreSQL writes, Docker socket, container restarts, or job deletion.
+- At most one managed queue is deliberately unpaused.
+- Ignored and unknown queues are never mutated.
+- All mutations are serialized inside one low-memory Node.js process.
 
-## Main states
+## Main flow
 
 ```text
-IDLE -> PREPARING
-     -> GUARDED_IDLE -> CAPTURING_UPLOADS -> PROCESSING
-     -> RUNNING_STAGE <-> WAITING_FOR_QUIET
-     -> COMPLETED | GUARDED_IDLE
+IDLE -> PREPARING -> DISCOVERING -> INVENTORY_READY
+                               -> RUNNING_STAGE <-> WAITING_FOR_QUIET
+                               -> COMPLETED | GUARDED_IDLE
 
-Any managed pass can stop in:
-PAUSED_BY_OPERATOR | AMBIGUOUS_START | DEGRADED | RELEASING
+GUARDED_IDLE -> CAPTURING_UPLOADS -> DISCOVERING
+
+upload during DISCOVERING / INVENTORY_READY / processing
+  -> pause managed queues -> CAPTURING_UPLOADS -> full DISCOVERING restart
 ```
+
+Arming autopilot and the manual **Scan and process** action normally enter `DISCOVERING` immediately. For each enabled queue the controller temporarily resumes it, starts or adopts its `QueueAll` missing generator, observes that generator through the queue-job API, captures the resulting pending count, and pauses a managed queue again. `INVENTORY_READY` keeps those counts visible for a configurable short hold before processing.
+
+Because Immich executes `QueueAll` in its target queue, discovery cannot populate a globally paused queue without opening it temporarily. Polling minimizes the window, but existing or newly created jobs may start before the pause is restored. Active work is never cancelled.
+
+## Queue policies
+
+- `managed`: owned by the serial scheduler and paused during capture/guarded idle.
+- `always-running`: included in discovery/order but kept unpaused.
+- `ignored`: excluded from stages and never changed.
+
+Dependencies are validated before a run. In particular, facial recognition follows face detection.
 
 ## Durable mutation protocol
 
-Pause and resume operations follow this sequence:
+Pause/resume operations follow:
 
 ```text
-PREPARED (fsync) -> API call -> read-response verification -> VERIFIED -> COMMITTED
+PREPARED (fsync) -> API call -> response/read verification -> VERIFIED -> COMMITTED
 ```
 
-After a crash, an idempotent action is reconciled against observed state. If state matches `before`, the action is retried; if it matches `desired`, the action is committed. A third state is treated as an external override.
+After a crash, idempotent actions are reconciled against observed state. A missing-check start is not idempotent: after an unclear network result the controller looks for timestamped `QueueAll` evidence and asks the operator when evidence is insufficient. It never performs a blind automatic retry.
 
-A legacy start is not idempotent. After an unclear network result, the controller does not retry. It searches for QueueAll evidence with a timestamp no older than the prepared action and enters `AMBIGUOUS_START` when the evidence is insufficient.
+`state.json` and `settings.json` use temporary writes, file fsync, atomic rename, and directory fsync where supported. `journal.jsonl` is append-and-fsync. Corrupt state is preserved and control becomes read-only. Unchanged ticks and unchanged settings do not rewrite snapshots.
 
-## State storage
+## Upload priority and resources
 
-- `state.json`: temporary write, file fsync, atomic rename, and directory fsync where supported.
-- `journal.jsonl`: append and fsync for every mutation phase.
-- Corrupt state is never overwritten; the service switches to read-only mode.
-- All actions are serialized inside the process.
-- An unchanged tick does not rewrite `state.json`; CPU hysteresis is persisted only when a timer or throttled state changes.
+Managed queues are already paused in guarded idle. Statistics polling detects asset growth within the configured interval, which is validated below 30 seconds. An upload during any active pass pauses dispatch immediately, then restarts the full inventory after fixed or optional asset-count-adjusted quiet time.
 
-## Upload priority
-
-Armed autopilot keeps queues paused before the first file arrives. This removes the race to pause processing after the first job appears. If uploading starts during processing, the controller pauses dispatch, waits for the active job, and returns to the capture quiet timer.
-
-## Idle resource policy
-
-- Active processing polls Immich every 5 seconds.
-- `GUARDED_IDLE` polls every 10 seconds, keeping upload detection below 30 seconds.
-- Standby without an active run polls every 30 seconds.
-- CPU sampling exists only during processing phases.
-- The Docker image does not run a separate Node.js healthcheck process; `/healthz` and `/readyz` remain available to external monitoring.
+Active discovery/processing normally polls every 5 seconds, guarded idle every 10 seconds, and standby every 30 seconds. CPU sampling exists only during phases where it is displayed or can throttle dispatch. There is no separate Node.js healthcheck process.

@@ -12,6 +12,8 @@ import type { ImmichApi } from '../immich/client.js';
 import type { ServerFeatures, ServerStatistics, ServerVersion } from '../immich/schemas.js';
 import type { CpuMonitor, CpuStatus } from '../monitoring/cpu.js';
 import { resolvePanelAuthentication, type EffectivePanelAuthentication } from '../security/authentication.js';
+import { defaultRuntimeSettings, parseRuntimeSettings, type QueuePolicy, type RuntimeSettings } from '../settings/schema.js';
+import type { SettingsStore } from '../settings/store.js';
 import type { ActionJournal, PreparedAction } from '../state/journal.js';
 import {
   createStageRuntime,
@@ -34,6 +36,8 @@ export interface AppLogger {
   error(message: string, context?: Record<string, unknown>): void;
 }
 
+export type ReleaseStrategy = 'keep-managed-paused' | 'restore-original';
+
 export interface OrchestratorOptions {
   config: AppConfig;
   api: ImmichApi;
@@ -42,6 +46,8 @@ export interface OrchestratorOptions {
   cpuMonitor: CpuMonitor;
   logger: AppLogger;
   adminPassword: string | null;
+  settings?: RuntimeSettings;
+  settingsStore?: SettingsStore;
   now?: () => Date;
 }
 
@@ -73,7 +79,12 @@ const TERMINAL_PHASES = new Set<ControllerPhase>([
   'COMPLETED',
 ]);
 
-const CPU_MONITORED_PHASES = new Set<ControllerPhase>(['PROCESSING', 'RUNNING_STAGE', 'WAITING_FOR_QUIET']);
+const CPU_MONITORED_PHASES = new Set<ControllerPhase>([
+  'DISCOVERING',
+  'PROCESSING',
+  'RUNNING_STAGE',
+  'WAITING_FOR_QUIET',
+]);
 
 export class QueueOrchestrator {
   readonly #config: AppConfig;
@@ -84,6 +95,7 @@ export class QueueOrchestrator {
   readonly #logger: AppLogger;
   readonly #adminPassword: string | null;
   readonly #authentication: EffectivePanelAuthentication;
+  readonly #settingsStore: SettingsStore | null;
   readonly #now: () => Date;
   readonly #serial = new SerialExecutor();
   #state: PersistentState | null = null;
@@ -99,6 +111,7 @@ export class QueueOrchestrator {
   #loopPromise: Promise<void> | null = null;
   #loopAbort: AbortController | null = null;
   #needsJournalReconciliation = false;
+  #settings: RuntimeSettings;
 
   constructor(options: OrchestratorOptions) {
     this.#config = options.config;
@@ -110,6 +123,9 @@ export class QueueOrchestrator {
     const authentication = resolvePanelAuthentication(options.config.server.authentication, options.adminPassword);
     this.#adminPassword = authentication.password;
     this.#authentication = authentication.mode;
+    this.#settings = options.settings ?? defaultRuntimeSettings(options.config);
+    this.#settingsStore = options.settingsStore ?? null;
+    this.#validateRuntimeSettings(this.#settings);
     this.#now = options.now ?? (() => new Date());
   }
 
@@ -130,6 +146,7 @@ export class QueueOrchestrator {
       if (this.#state.run) {
         if (this.#config.control.resumePersistedRun && this.#mutationsConfigured()) {
           await this.#reconcileJournal(this.#state.run, true);
+          await this.#refreshSafePersistedRun(this.#state.run);
         } else if (!TERMINAL_PHASES.has(this.#state.run.phase)) {
           this.#state.run.phase = 'PAUSED_BY_OPERATOR';
           this.#state.run.lastError = 'Persisted run found, but automatic resume is disabled or control is read-only';
@@ -181,6 +198,25 @@ export class QueueOrchestrator {
 
   effectiveConfig(): AppConfig {
     return structuredClone(this.#config);
+  }
+
+  runtimeSettings(): RuntimeSettings {
+    return structuredClone(this.#settings);
+  }
+
+  updateSettings(input: unknown): Promise<boolean> {
+    return this.#serial.run(async () => {
+      const settings = parseRuntimeSettings(input);
+      this.#validateRuntimeSettings(settings);
+      const active = this.#state?.run;
+      if (active && !TERMINAL_PHASES.has(active.phase) && JSON.stringify(settings.queues) !== JSON.stringify(this.#settings.queues)) {
+        throw new ConflictError('Queue policies and order can only be changed while the controller is idle');
+      }
+      const changed = this.#settingsStore ? await this.#settingsStore.save(settings) : JSON.stringify(settings) !== JSON.stringify(this.#settings);
+      this.#settings = settings;
+      this.#cpu.configure(settings.loadGuard.sampleIntervalMs, settings.loadGuard.movingAverageWindowMs);
+      return changed;
+    });
   }
 
   isAuthorized(candidate: string | undefined): boolean {
@@ -241,8 +277,9 @@ export class QueueOrchestrator {
         throw new ConflictError('Resolve or abort the ambiguous start before pausing the controller');
       }
       await this.#refreshObservation();
-      for (const queue of this.#managedQueueSnapshots()) {
-        await this.#setQueuePaused(run, queue, true, 'operator paused controller');
+      for (const queue of this.#controlledQueueSnapshots()) {
+        const desired = this.#queuePolicy(queue.name) === 'managed';
+        await this.#setQueuePaused(run, queue, desired, 'operator paused controller');
       }
       run.phase = 'PAUSED_BY_OPERATOR';
       run.lastError = 'Controller paused by operator';
@@ -257,8 +294,9 @@ export class QueueOrchestrator {
       const run = this.#requireRun();
       if (run.phase !== 'PAUSED_BY_OPERATOR') throw new ConflictError('Controller is not paused');
       await this.#refreshObservation();
-      for (const queue of this.#managedQueueSnapshots()) {
-        await this.#setQueuePaused(run, queue, true, 'operator explicitly resumed controller');
+      for (const queue of this.#controlledQueueSnapshots()) {
+        const desired = this.#queuePolicy(queue.name) === 'managed';
+        await this.#setQueuePaused(run, queue, desired, 'operator explicitly resumed controller');
       }
       this.#requireState().pausedByOperator = false;
       run.lastError = null;
@@ -269,7 +307,7 @@ export class QueueOrchestrator {
     });
   }
 
-  release(): Promise<void> {
+  release(strategy: ReleaseStrategy = 'keep-managed-paused'): Promise<void> {
     return this.#serial.run(async () => {
       this.#assertMutationsAllowed();
       const state = this.#requireState();
@@ -277,7 +315,14 @@ export class QueueOrchestrator {
       run.phase = 'RELEASING';
       await this.#saveState();
       await this.#refreshObservation();
-      await this.#restoreOriginalStates(run);
+      if (strategy === 'restore-original') {
+        await this.#restoreOriginalStates(run);
+      } else {
+        for (const queue of this.#controlledQueueSnapshots()) {
+          const desired = this.#queuePolicy(queue.name) === 'managed';
+          await this.#setQueuePaused(run, queue, desired, 'operator released control and kept managed queues paused');
+        }
+      }
       state.autopilotArmed = false;
       state.pausedByOperator = false;
       state.run = null;
@@ -308,10 +353,11 @@ export class QueueOrchestrator {
       const stage = run.stages.find((candidate) => candidate.queue === action.queue && !candidate.repairAttempted);
       if (stage) {
         stage.repairAttempted = true;
-        stage.status = 'repair-settling';
-        stage.settleUntil = new Date(this.#now().getTime() + this.#config.scheduler.startSettlePeriodMs).toISOString();
+        stage.discoveryStatus = 'running';
+        stage.discoveryStartedAt = this.#nowIso();
+        stage.discoveryJobSeen = false;
       }
-      run.phase = 'RUNNING_STAGE';
+      run.phase = 'DISCOVERING';
       run.lastError = null;
       await this.#saveState();
     });
@@ -360,6 +406,12 @@ export class QueueOrchestrator {
       case 'PREPARING':
         await this.#prepareRun(run);
         break;
+      case 'DISCOVERING':
+        await this.#tickDiscovering(run);
+        break;
+      case 'INVENTORY_READY':
+        await this.#tickInventoryReady(run);
+        break;
       case 'GUARDED_IDLE':
         await this.#tickGuardedIdle(run);
         break;
@@ -391,8 +443,9 @@ export class QueueOrchestrator {
     if (!this.#features || !this.#serverStatistics) throw new Error('Immich capabilities are unavailable');
     const now = this.#nowIso();
     const originalQueueStates: Partial<Record<QueueName, boolean>> = {};
-    for (const queue of this.#managedQueueSnapshots()) originalQueueStates[queue.name] = queue.isPaused;
-    const stages = enabledPipeline(this.#config.pipeline, this.#features).map(createStageRuntime);
+    for (const queue of this.#controlledQueueSnapshots()) originalQueueStates[queue.name] = queue.isPaused;
+    const stages = enabledPipeline(this.#orderedPipeline(), this.#features).map(createStageRuntime);
+    const assets = assetCount(this.#serverStatistics);
     state.run = {
       id: randomUUID(),
       mode,
@@ -403,11 +456,14 @@ export class QueueOrchestrator {
       desiredQueueStates: { ...originalQueueStates },
       stages,
       currentStageIndex: 0,
+      discoveryStageIndex: 0,
+      inventoryReadyUntil: null,
       captureStartedAt: mode === 'manual-session' ? null : now,
+      captureStartAssets: assets,
       captureEndRequested: false,
       lastActivityAt: mode === 'manual-session' ? null : now,
       lastActivity: this.#activitySnapshot(now),
-      lastObservedAssets: assetCount(this.#serverStatistics),
+      lastObservedAssets: assets,
       lastError: null,
       loadThrottled: false,
       loadHighSince: null,
@@ -420,16 +476,22 @@ export class QueueOrchestrator {
   }
 
   async #prepareRun(run: RunState): Promise<void> {
-    for (const queue of this.#managedQueueSnapshots()) {
-      await this.#setQueuePaused(run, queue, true, 'prepare run: guard managed queues');
+    for (const queue of this.#controlledQueueSnapshots()) {
+      const desired = this.#queuePolicy(queue.name) === 'managed';
+      await this.#setQueuePaused(run, queue, desired, `prepare run: apply ${this.#queuePolicy(queue.name)} policy`);
     }
     const now = this.#nowIso();
     run.lastActivity = this.#activitySnapshot(now);
     run.lastObservedAssets = this.#serverStatistics ? assetCount(this.#serverStatistics) : run.lastObservedAssets;
     if (run.mode === 'manual-session') {
-      run.phase = 'PROCESSING';
       run.stages = resetStages(run.stages);
       run.currentStageIndex = 0;
+      if (this.#settings.automation.scanOnManualStart) this.#beginDiscovery(run);
+      else run.phase = 'PROCESSING';
+    } else if (run.mode === 'autopilot' && this.#settings.automation.scanOnAutopilotStart) {
+      run.stages = resetStages(run.stages);
+      run.currentStageIndex = 0;
+      this.#beginDiscovery(run);
     } else if (run.mode === 'autopilot' && this.#totalPending() === 0) {
       run.phase = 'GUARDED_IDLE';
       run.captureStartedAt = null;
@@ -445,10 +507,21 @@ export class QueueOrchestrator {
 
   async #tickGuardedIdle(run: RunState): Promise<void> {
     const currentAssets = this.#serverStatistics ? assetCount(this.#serverStatistics) : run.lastObservedAssets;
+    const periodic = this.#settings.automation.periodicDiscoveryIntervalMs;
+    const lastDiscoveryAt = this.#state?.lastDiscoveryAt;
+    if (periodic !== null && (!lastDiscoveryAt || this.#now().getTime() - Date.parse(lastDiscoveryAt) >= periodic)) {
+      run.stages = resetStages(run.stages);
+      run.currentStageIndex = 0;
+      this.#beginDiscovery(run);
+      await this.#saveState();
+      this.#logger.info('Scheduled missing-media discovery started', { runId: run.id });
+      return;
+    }
     if (this.#totalPending() > 0 || currentAssets > run.lastObservedAssets) {
       const now = this.#nowIso();
       run.phase = 'CAPTURING_UPLOADS';
       run.captureStartedAt = now;
+      run.captureStartAssets = currentAssets;
       run.lastActivityAt = now;
       run.lastActivity = this.#activitySnapshot(now);
       run.lastObservedAssets = currentAssets;
@@ -480,8 +553,10 @@ export class QueueOrchestrator {
     run.lastObservedAssets = snapshot.assets;
     const lastActivityAt = run.lastActivityAt ? Date.parse(run.lastActivityAt) : now.getTime();
     const captureStartedAt = run.captureStartedAt ? Date.parse(run.captureStartedAt) : now.getTime();
-    const quietRequired = run.mode === 'autopilot' ? this.#config.autopilot.autoEndAfterMs : this.#config.capture.uploadQuietPeriodMs;
-    const canAutoEnd = run.mode === 'autopilot' || run.captureEndRequested;
+    const quietRequired = ['autopilot', 'manual-session'].includes(run.mode)
+      ? this.#uploadQuietRequired(run, snapshot.assets)
+      : this.#config.capture.uploadQuietPeriodMs;
+    const canAutoEnd = ['autopilot', 'manual-session'].includes(run.mode) || run.captureEndRequested;
     if (
       canAutoEnd &&
       now.getTime() - lastActivityAt >= quietRequired &&
@@ -489,16 +564,160 @@ export class QueueOrchestrator {
     ) {
       run.stages = resetStages(run.stages);
       run.currentStageIndex = 0;
-      run.phase = 'PROCESSING';
+      if (
+        (run.mode === 'autopilot' && this.#settings.automation.scanOnAutopilotStart) ||
+        (run.mode === 'manual-session' && this.#settings.automation.scanOnManualStart)
+      ) {
+        this.#beginDiscovery(run);
+      }
+      else run.phase = 'PROCESSING';
       run.updatedAt = now.toISOString();
       await this.#saveState();
       this.#logger.info('Upload quiet period completed; processing pass started', { runId: run.id });
     }
   }
 
+  #beginDiscovery(run: RunState): void {
+    run.phase = 'DISCOVERING';
+    run.discoveryStageIndex = 0;
+    run.inventoryReadyUntil = null;
+  }
+
+  async #tickDiscovering(run: RunState): Promise<void> {
+    if (this.#activityIndicatesUpload(run)) {
+      await this.#returnToCapture(run, this.#serverStatistics ? assetCount(this.#serverStatistics) : run.lastObservedAssets);
+      return;
+    }
+    if (await this.#applyLoadGuard(run)) return;
+
+    const stage = run.stages[run.discoveryStageIndex];
+    if (!stage) {
+      const now = this.#now();
+      this.#requireState().lastDiscoveryAt = now.toISOString();
+      run.inventoryReadyUntil = new Date(now.getTime() + this.#settings.automation.inventoryHoldMs).toISOString();
+      run.phase = 'INVENTORY_READY';
+      run.currentStageIndex = 0;
+      await this.#saveState();
+      this.#logger.info('Missing-media inventory completed', {
+        runId: run.id,
+        inventory: Object.fromEntries(run.stages.map((candidate) => [candidate.queue, candidate.inventoryCount])),
+      });
+      return;
+    }
+
+    const queue = this.#queueByName(stage.queue);
+    if (!queue) throw new Error(`Discovery queue disappeared: ${stage.queue}`);
+    const setting = this.#queueSetting(stage.queue);
+    if (!setting || setting.policy === 'ignored' || !setting.checkMissing || !this.#config.api.allowLegacyStart) {
+      stage.discoveryStatus = 'skipped';
+      stage.inventoryCount = pendingJobs(queue);
+      stage.discoveryCompletedAt = this.#nowIso();
+      stage.repairAttempted = true;
+      run.discoveryStageIndex += 1;
+      await this.#saveState();
+      return;
+    }
+
+    if (stage.discoveryStatus === 'running' && queue.isPaused && !run.loadThrottled) {
+      await this.#setQueuePaused(run, queue, false, `resume discovery for ${stage.queue} after load guard`);
+      await this.#saveState();
+      return;
+    }
+
+    if (stage.discoveryStatus === 'pending') {
+      if (queue.isPaused) {
+        await this.#setQueuePaused(run, queue, false, `open ${stage.queue} for missing-media discovery`);
+      }
+      const expectedName = QUEUE_ALL_JOB_NAMES[stage.queue];
+      const existingJobs = expectedName
+        ? await this.#api.getQueueJobs(stage.queue, ['active', 'waiting', 'paused', 'delayed'])
+        : [];
+      if (expectedName && existingJobs.some((job) => job.name === expectedName)) {
+        stage.discoveryStatus = 'running';
+        stage.discoveryStartedAt = this.#nowIso();
+        stage.discoveryCompletedAt = null;
+        stage.discoveryJobSeen = true;
+        stage.discoveryTimedOut = false;
+        stage.discoveryNeedsRescan = true;
+        stage.repairAttempted = true;
+        await this.#saveState();
+        return;
+      }
+      const committed = await this.#startMissing(run, stage.queue, `inventory missing media for ${stage.id}`);
+      if (!committed) return;
+      const now = this.#nowIso();
+      stage.discoveryStatus = 'running';
+      stage.discoveryStartedAt = now;
+      stage.discoveryCompletedAt = null;
+      stage.discoveryJobSeen = false;
+      stage.discoveryTimedOut = false;
+      stage.discoveryNeedsRescan = false;
+      stage.repairAttempted = true;
+      await this.#saveState();
+      return;
+    }
+
+    if (stage.discoveryStatus !== 'running' || !stage.discoveryStartedAt) return;
+    const expectedName = QUEUE_ALL_JOB_NAMES[stage.queue];
+    const discoveryJobs = expectedName
+      ? await this.#api.getQueueJobs(stage.queue, ['active', 'waiting', 'paused', 'delayed'])
+      : [];
+    const jobIsPending = expectedName ? discoveryJobs.some((job) => job.name === expectedName) : false;
+    if (jobIsPending && !stage.discoveryJobSeen) {
+      stage.discoveryJobSeen = true;
+      await this.#saveState();
+      return;
+    }
+    const elapsed = this.#now().getTime() - Date.parse(stage.discoveryStartedAt);
+    const settledWithoutObservation = !stage.discoveryJobSeen && elapsed >= this.#settings.automation.discoverySettleMs;
+    const completedAfterObservation = stage.discoveryJobSeen && !jobIsPending;
+    const timedOut = elapsed >= this.#settings.automation.discoveryTimeoutMs;
+    if (!settledWithoutObservation && !completedAfterObservation && !timedOut) return;
+
+    if (stage.discoveryNeedsRescan && !timedOut) {
+      stage.discoveryStatus = 'pending';
+      stage.discoveryStartedAt = null;
+      stage.discoveryJobSeen = false;
+      stage.discoveryNeedsRescan = false;
+      await this.#saveState();
+      return;
+    }
+
+    await this.#refreshObservation();
+    const refreshed = this.#queueByName(stage.queue);
+    if (!refreshed) throw new Error(`Discovery queue disappeared: ${stage.queue}`);
+    if (setting.policy === 'managed' && !refreshed.isPaused) {
+      await this.#setQueuePaused(run, refreshed, true, `freeze ${stage.queue} inventory before processing`);
+      await this.#refreshObservation();
+    }
+    const inventory = this.#queueByName(stage.queue);
+    stage.discoveryStatus = 'complete';
+    stage.inventoryCount = inventory ? pendingJobs(inventory) : 0;
+    stage.discoveryCompletedAt = this.#nowIso();
+    stage.discoveryTimedOut = timedOut;
+    run.discoveryStageIndex += 1;
+    if (timedOut) {
+      run.lastError = `Discovery timeout reached for ${stage.queue}; processing the inventory observed so far`;
+      this.#logger.warn('Missing-media discovery timed out', { runId: run.id, queue: stage.queue });
+    }
+    await this.#saveState();
+  }
+
+  async #tickInventoryReady(run: RunState): Promise<void> {
+    if (this.#activityIndicatesUpload(run)) {
+      await this.#returnToCapture(run, this.#serverStatistics ? assetCount(this.#serverStatistics) : run.lastObservedAssets);
+      return;
+    }
+    if (run.inventoryReadyUntil && this.#now().getTime() < Date.parse(run.inventoryReadyUntil)) return;
+    run.phase = 'PROCESSING';
+    run.inventoryReadyUntil = null;
+    run.currentStageIndex = 0;
+    await this.#saveState();
+  }
+
   async #tickProcessing(run: RunState): Promise<void> {
     const currentAssets = this.#serverStatistics ? assetCount(this.#serverStatistics) : run.lastObservedAssets;
-    if (['autopilot', 'capture-assisted'].includes(run.mode) && currentAssets > run.lastObservedAssets) {
+    if (this.#activityIndicatesUpload(run)) {
       await this.#returnToCapture(run, currentAssets);
       return;
     }
@@ -582,7 +801,7 @@ export class QueueOrchestrator {
       await this.#saveState();
       return;
     }
-    if (now.getTime() - Date.parse(stage.quietSince) < this.#config.scheduler.quietPeriodMs) return;
+    if (now.getTime() - Date.parse(stage.quietSince) < this.#settings.automation.queueQuietMs) return;
     if (allowRepair && this.#shouldRepair(stage)) {
       await this.#launchRepair(run, stage);
       return;
@@ -600,13 +819,15 @@ export class QueueOrchestrator {
     stage.repairAttempted = true;
     stage.status = 'repair-settling';
     stage.quietSince = null;
-    stage.settleUntil = new Date(this.#now().getTime() + this.#config.scheduler.startSettlePeriodMs).toISOString();
+    stage.settleUntil = new Date(this.#now().getTime() + this.#settings.automation.discoverySettleMs).toISOString();
     run.phase = 'RUNNING_STAGE';
     await this.#saveState();
   }
 
   async #finishStage(run: RunState, stage: StageRuntime, queue: QueueSnapshot): Promise<void> {
-    await this.#setQueuePaused(run, queue, true, `stage ${stage.id} completed`);
+    if (this.#queuePolicy(queue.name) === 'managed') {
+      await this.#setQueuePaused(run, queue, true, `stage ${stage.id} completed`);
+    }
     stage.status = 'completed';
     stage.completedAt = this.#nowIso();
     stage.quietSince = null;
@@ -621,8 +842,9 @@ export class QueueOrchestrator {
     const now = this.#nowIso();
     if (run.mode === 'autopilot') {
       await this.#refreshObservation();
-      for (const queue of this.#managedQueueSnapshots()) {
-        await this.#setQueuePaused(run, queue, true, 'autopilot returns to guarded idle');
+      for (const queue of this.#controlledQueueSnapshots()) {
+        const desired = this.#queuePolicy(queue.name) === 'managed';
+        await this.#setQueuePaused(run, queue, desired, 'autopilot returns to guarded idle');
       }
       run.phase = 'GUARDED_IDLE';
       run.currentStageIndex = 0;
@@ -646,12 +868,14 @@ export class QueueOrchestrator {
 
   async #returnToCapture(run: RunState, currentAssets: number): Promise<void> {
     await this.#refreshObservation();
-    for (const queue of this.#managedQueueSnapshots()) {
-      await this.#setQueuePaused(run, queue, true, 'new upload detected during processing');
+    for (const queue of this.#controlledQueueSnapshots()) {
+      const desired = this.#queuePolicy(queue.name) === 'managed';
+      await this.#setQueuePaused(run, queue, desired, 'new upload detected during processing');
     }
     const now = this.#nowIso();
     run.phase = 'CAPTURING_UPLOADS';
     run.captureStartedAt = now;
+    run.captureStartAssets = currentAssets;
     run.lastActivityAt = now;
     run.lastActivity = this.#activitySnapshot(now);
     run.lastObservedAssets = currentAssets;
@@ -661,7 +885,7 @@ export class QueueOrchestrator {
   }
 
   async #applyLoadGuard(run: RunState): Promise<boolean> {
-    const config = this.#config.loadGuard;
+    const config = this.#settings.loadGuard;
     if (config.mode !== 'throttle' || config.pauseAbove === null || config.resumeBelow === null) return false;
     const average = this.#cpu.status().averagePercent;
     if (average === null) return false;
@@ -701,7 +925,7 @@ export class QueueOrchestrator {
         dirty = true;
       }
       if (now.getTime() - Date.parse(run.loadHighSince) >= config.pauseForMs) {
-        const stage = run.stages[run.currentStageIndex];
+        const stage = run.stages[run.phase === 'DISCOVERING' ? run.discoveryStageIndex : run.currentStageIndex];
         const queue = stage ? this.#queueByName(stage.queue) : undefined;
         if (queue && !queue.isPaused) await this.#setQueuePaused(run, queue, true, 'CPU load guard throttled queue');
         run.loadThrottled = true;
@@ -721,7 +945,7 @@ export class QueueOrchestrator {
   #syncCpuMonitoring(): void {
     const run = this.#state?.run;
     const phase = run?.phase;
-    const needed = this.#config.loadGuard.mode !== 'off' && phase !== undefined && CPU_MONITORED_PHASES.has(phase);
+    const needed = this.#settings.loadGuard.mode !== 'off' && phase !== undefined && CPU_MONITORED_PHASES.has(phase);
     if (needed) {
       if (!this.#cpu.isRunning() && run) {
         run.loadHighSince = null;
@@ -735,14 +959,14 @@ export class QueueOrchestrator {
 
   #nextPollIntervalMs(): number {
     const phase = this.#state?.run?.phase;
-    if (phase === 'GUARDED_IDLE') return this.#config.scheduler.guardedIdlePollIntervalMs;
-    if (!phase || TERMINAL_PHASES.has(phase)) return this.#config.scheduler.standbyPollIntervalMs;
-    return this.#config.scheduler.pollIntervalMs;
+    if (phase === 'GUARDED_IDLE') return this.#settings.automation.guardedPollMs;
+    if (!phase || TERMINAL_PHASES.has(phase)) return this.#settings.automation.standbyPollMs;
+    return this.#settings.automation.activePollMs;
   }
 
   #shouldRepair(stage: StageRuntime): boolean {
-    const definition = this.#config.pipeline.find((candidate) => candidate.id === stage.id);
-    return Boolean(definition?.startMissing && this.#config.api.allowLegacyStart && !stage.repairAttempted);
+    const setting = this.#queueSetting(stage.queue);
+    return Boolean(setting?.checkMissing && this.#config.api.allowLegacyStart && !stage.repairAttempted);
   }
 
   async #setQueuePaused(run: RunState, queue: QueueSnapshot, desired: boolean, reason: string): Promise<void> {
@@ -776,9 +1000,7 @@ export class QueueOrchestrator {
 
   async #startMissing(run: RunState, queue: QueueName, reason: string): Promise<boolean> {
     const snapshot = this.#queueByName(queue);
-    if (!snapshot || pendingJobs(snapshot) !== 0) {
-      throw new ConflictError(`Refusing start missing while ${queue} has pending work`);
-    }
+    if (!snapshot) throw new ConflictError(`Queue ${queue} is unavailable`);
     const prepared = await this.#journal.prepare(
       {
         runId: run.id,
@@ -810,7 +1032,13 @@ export class QueueOrchestrator {
       Object.assign(run.desiredQueueStates, committedStates);
       const committedStarts = new Set(await this.#journal.committedStartQueues(run.id));
       for (const stage of run.stages) {
-        if (committedStarts.has(stage.queue) && !stage.repairAttempted) stage.repairAttempted = true;
+        if (committedStarts.has(stage.queue) && !stage.repairAttempted) {
+          stage.repairAttempted = true;
+          if (stage.discoveryStatus === 'pending') {
+            stage.discoveryStatus = 'running';
+            stage.discoveryStartedAt = run.updatedAt;
+          }
+        }
       }
     }
     const actions = await this.#journal.openActions(run.id);
@@ -820,7 +1048,11 @@ export class QueueOrchestrator {
           await this.#journal.appendTransition(action, 'VERIFIED', 'recovered from queue evidence', this.#now());
           await this.#journal.appendTransition(action, 'COMMITTED', 'recovered from queue evidence', this.#now());
           const stage = run.stages.find((candidate) => candidate.queue === action.queue && !candidate.repairAttempted);
-          if (stage) stage.repairAttempted = true;
+          if (stage) {
+            stage.repairAttempted = true;
+            stage.discoveryStatus = 'running';
+            stage.discoveryStartedAt = this.#nowIso();
+          }
         } else {
           await this.#journal.appendTransition(action, 'AMBIGUOUS', 'no conclusive queue evidence after restart', this.#now());
           run.phase = 'AMBIGUOUS_START';
@@ -862,8 +1094,6 @@ export class QueueOrchestrator {
   }
 
   async #hasStartEvidence(action: PreparedAction): Promise<boolean> {
-    const queue = await this.#api.getQueue(action.queue);
-    if (pendingJobs(queue) > 0) return true;
     const expectedName = QUEUE_ALL_JOB_NAMES[action.queue];
     if (!expectedName) return false;
     const jobs = await this.#api.getQueueJobs(action.queue, ['active', 'waiting', 'paused', 'delayed', 'completed']);
@@ -886,15 +1116,51 @@ export class QueueOrchestrator {
 
   async #restoreOriginalStates(run: RunState): Promise<void> {
     await this.#refreshObservation();
-    for (const queue of this.#managedQueueSnapshots()) {
+    for (const queue of this.#controlledQueueSnapshots()) {
       const original = run.originalQueueStates[queue.name];
       if (original === undefined) continue;
       await this.#setQueuePaused(run, queue, original, 'restore original queue state');
     }
   }
 
+  async #refreshSafePersistedRun(run: RunState): Promise<void> {
+    if (!['PREPARING', 'GUARDED_IDLE', 'CAPTURING_UPLOADS'].includes(run.phase) || !this.#features) return;
+    const expectedStages = enabledPipeline(this.#orderedPipeline(), this.#features).map(createStageRuntime);
+    const currentQueues = run.stages.map((stage) => stage.queue);
+    const expectedQueues = expectedStages.map((stage) => stage.queue);
+    let dirty = JSON.stringify(currentQueues) !== JSON.stringify(expectedQueues);
+    if (dirty) {
+      run.stages = expectedStages;
+      run.currentStageIndex = 0;
+      run.discoveryStageIndex = 0;
+      run.inventoryReadyUntil = null;
+      this.#logger.info('Persisted idle run updated to the current queue settings', {
+        runId: run.id,
+        previousQueues: currentQueues,
+        queues: expectedQueues,
+      });
+    }
+
+    for (const queue of this.#controlledQueueSnapshots()) {
+      if (run.originalQueueStates[queue.name] === undefined) {
+        run.originalQueueStates[queue.name] = queue.isPaused;
+        run.desiredQueueStates[queue.name] = queue.isPaused;
+        dirty = true;
+      }
+    }
+
+    if (['GUARDED_IDLE', 'CAPTURING_UPLOADS'].includes(run.phase)) {
+      for (const queue of this.#controlledQueueSnapshots()) {
+        const desired = this.#queuePolicy(queue.name) === 'managed';
+        if (queue.isPaused !== desired) dirty = true;
+        await this.#setQueuePaused(run, queue, desired, 'apply current queue policy after restart');
+      }
+    }
+    if (dirty) await this.#saveState();
+  }
+
   #findManualOverride(run: RunState): string | null {
-    for (const queue of this.#managedQueueSnapshots()) {
+    for (const queue of this.#controlledQueueSnapshots()) {
       const desired = run.desiredQueueStates[queue.name];
       if (desired !== undefined && desired !== queue.isPaused) {
         return `Queue ${queue.name} isPaused=${String(queue.isPaused)}, controller expected ${String(desired)}`;
@@ -947,7 +1213,10 @@ export class QueueOrchestrator {
       throw new Error(`Unsupported Immich major version: ${this.#version.major}`);
     }
     const present = new Set(this.#queues.map((queue) => queue.name));
-    const missing = this.#config.scheduler.managedQueues.filter((queue) => !present.has(queue));
+    const missing = this.#settings.queues
+      .filter((queue) => queue.policy !== 'ignored')
+      .map((queue) => queue.queue)
+      .filter((queue) => !present.has(queue));
     if (missing.length > 0) throw new Error(`Immich did not return managed queues: ${missing.join(', ')}`);
   }
 
@@ -960,13 +1229,69 @@ export class QueueOrchestrator {
     };
   }
 
-  #totalPending(): number {
-    return this.#managedQueueSnapshots().reduce((total, queue) => total + pendingJobs(queue), 0);
+  #activityIndicatesUpload(run: RunState): boolean {
+    const current = this.#activitySnapshot(this.#nowIso());
+    const previous = run.lastActivity;
+    return current.assets > run.lastObservedAssets || (previous !== null && current.usage > previous.usage);
   }
 
-  #managedQueueSnapshots(): QueueSnapshot[] {
-    const managed = new Set(this.#config.scheduler.managedQueues);
-    return this.#queues.filter((queue) => managed.has(queue.name));
+  #uploadQuietRequired(run: RunState, currentAssets: number): number {
+    const automation = this.#settings.automation;
+    if (!automation.adaptiveQuietEnabled) return automation.uploadQuietPeriodMs;
+    const uploaded = Math.max(0, currentAssets - run.captureStartAssets);
+    return Math.min(
+      automation.adaptiveQuietMaxMs,
+      automation.uploadQuietPeriodMs + uploaded * automation.adaptiveQuietPerAssetMs,
+    );
+  }
+
+  #totalPending(): number {
+    return this.#controlledQueueSnapshots().reduce((total, queue) => total + pendingJobs(queue), 0);
+  }
+
+  #controlledQueueSnapshots(): QueueSnapshot[] {
+    const controlled = new Set(
+      this.#settings.queues.filter((queue) => queue.policy !== 'ignored').map((queue) => queue.queue),
+    );
+    return this.#queues.filter((queue) => controlled.has(queue.name));
+  }
+
+  #queueSetting(name: QueueName) {
+    return this.#settings.queues.find((queue) => queue.queue === name);
+  }
+
+  #queuePolicy(name: QueueName): QueuePolicy {
+    return this.#queueSetting(name)?.policy ?? 'ignored';
+  }
+
+  #orderedPipeline() {
+    const definitions = new Map(this.#config.pipeline.map((stage) => [stage.queue, stage]));
+    return this.#settings.queues
+      .filter((queue) => queue.policy !== 'ignored')
+      .map((queue) => definitions.get(queue.queue))
+      .filter((stage) => stage !== undefined);
+  }
+
+  #validateRuntimeSettings(settings: RuntimeSettings): void {
+    const definitions = new Map(this.#config.pipeline.map((stage) => [stage.queue, stage]));
+    const enabled = settings.queues.filter((queue) => queue.policy !== 'ignored');
+    const positions = new Map(enabled.map((queue, index) => [queue.queue, index]));
+    for (const queue of settings.queues) {
+      if (!definitions.has(queue.queue)) throw new ConflictError(`Queue ${queue.queue} has no pipeline definition`);
+    }
+    for (const queue of enabled) {
+      const definition = definitions.get(queue.queue);
+      if (!definition) continue;
+      for (const dependencyId of definition.dependsOn) {
+        const dependency = this.#config.pipeline.find((stage) => stage.id === dependencyId);
+        if (!dependency) continue;
+        const dependencyPosition = positions.get(dependency.queue);
+        const queuePosition = positions.get(queue.queue);
+        if (dependencyPosition !== undefined && queuePosition !== undefined && dependencyPosition > queuePosition) {
+          throw new ConflictError(`${queue.queue} must stay after its dependency ${dependency.queue}`);
+        }
+      }
+    }
   }
 
   #queueByName(name: QueueName): QueueSnapshot | undefined {
