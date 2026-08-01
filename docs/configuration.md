@@ -2,7 +2,7 @@
 
 [Русская версия](ru/configuration.md)
 
-The published image contains `/app/orchestrator.docker.yml` for simple deployments. A custom `/config/orchestrator.yml` can be mounted read-only and selected with `CONFIG_FILE`. The simple Compose setup passes the Immich API key as a mounted secret. The optional panel password comes from `.env`; the real `.env` must never be committed.
+The published image contains `/app/orchestrator.docker.yml` for simple deployments. A custom `/config/orchestrator.yml` can be mounted read-only and selected with `CONFIG_FILE`. The simple Compose setup reads the Immich API key and the optional panel password from `.env`; the real `.env` must never be committed. The advanced Compose example keeps file-based secrets as an optional stricter setup.
 
 ## Bootstrap environment
 
@@ -11,8 +11,8 @@ The published image contains `/app/orchestrator.docker.yml` for simple deploymen
 | `CONFIG_FILE` | YAML path; defaults to `./orchestrator.yml` locally and `/app/orchestrator.docker.yml` in the image |
 | `DATA_DIR` | Durable state and journal; defaults to `./data` or `/data` in the image |
 | `IMMICH_URL` | Overrides `api.url` |
-| `IMMICH_API_KEY_FILE` | Recommended file containing the Immich API key |
-| `IMMICH_API_KEY` | Less secure inline secret |
+| `IMMICH_API_KEY` | Immich API key; used by the simple `.env` setup |
+| `IMMICH_API_KEY_FILE` | Optional file containing the Immich API key for a stricter setup |
 | `API_KEY` | Compose-friendly alias for `IMMICH_API_KEY` |
 | `ORCHESTRATOR_ADMIN_PASSWORD_FILE` | File containing the panel password |
 | `ORCHESTRATOR_ADMIN_PASSWORD` | Panel password supplied directly through the environment |

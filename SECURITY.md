@@ -6,7 +6,7 @@
 
 - Do not expose the panel directly to the internet.
 - The default Compose bind address is `127.0.0.1`. Outside a trusted network, use a panel password and a TLS/authentication reverse proxy.
-- Pass the Immich API key through a Docker secret. A stricter setup can also pass the panel password through `ORCHESTRATOR_ADMIN_PASSWORD_FILE`.
+- The simple setup keeps the Immich API key and optional panel password in `.env`. A stricter setup can pass them through `IMMICH_API_KEY_FILE` and `ORCHESTRATOR_ADMIN_PASSWORD_FILE`.
 - Keep real values in `.env`, which is excluded from Git and the Docker build context. Commit only the empty `.env.example`.
 - On Linux, restrict `.env` with `chmod 600 .env`.
 - Run the read-only container without capabilities or Docker socket access.

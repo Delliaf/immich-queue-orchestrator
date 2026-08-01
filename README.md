@@ -2,7 +2,7 @@
 
 [Русская версия](README.ru.md)
 
-A safe, independent controller for Immich background queues on home servers with limited CPU and memory.
+An independent controller for Immich background queues on home servers with limited CPU and memory.
 
 > Status: early release `0.1.1`. API contracts were validated against Immich `v3.1.0`. Start with `dryRun: true` on a real library and keep a backup.
 
@@ -40,7 +40,7 @@ Add this service under the existing `services:` section:
     image: ghcr.io/delliaf/immich-queue-orchestrator:latest
     environment:
       IMMICH_URL: http://immich-server:2283
-      IMMICH_API_KEY_FILE: /run/secrets/immich_api_key
+      IMMICH_API_KEY: ${IMMICH_QUEUE_ORCHESTRATOR_API_KEY}
       # Optional: leave empty to disable panel password authentication.
       ORCHESTRATOR_ADMIN_PASSWORD: ${IMMICH_QUEUE_ORCHESTRATOR_ADMIN_PASSWORD:-}
       UPLOAD_QUIET_PERIOD: "30m"
@@ -50,8 +50,6 @@ Add this service under the existing `services:` section:
       NODE_OPTIONS: --max-old-space-size=64
     volumes:
       - immich_queue_orchestrator_data:/data
-    secrets:
-      - immich_api_key
     ports:
       - 127.0.0.1:8080:8080
     depends_on:
@@ -68,15 +66,11 @@ Add this service under the existing `services:` section:
     cpus: 0.25
 ```
 
-Add these entries to the existing top-level `volumes:` and `secrets:` sections:
+Add this entry to the existing top-level `volumes:` section:
 
 ```yaml
 volumes:
   immich_queue_orchestrator_data:
-
-secrets:
-  immich_api_key:
-    environment: IMMICH_QUEUE_ORCHESTRATOR_API_KEY
 ```
 
 Copy the safe environment template and fill in the values:
@@ -98,7 +92,7 @@ The default `server.authentication: auto` mode behaves as follows:
 - any non-empty value makes the panel request that password;
 - there are no forced length, digit, or special-character requirements.
 
-This is a normal password for the orchestrator panel, not an API token or an Immich key. The real `.env` is excluded from Git and the Docker build context; only an empty `.env.example` is committed. When authentication is disabled, the panel displays a prominent warning. Do not expose that mode to the internet.
+The API key and the optional panel password are read from `.env`. The real `.env` is excluded from Git and the Docker build context; only an empty `.env.example` is committed. The panel password is a normal password for this panel, not an API token or an Immich key. When authentication is disabled, the panel displays a prominent warning. Do not expose that mode to the internet.
 
 Then run `docker compose up -d immich-queue-orchestrator`, open `http://127.0.0.1:8080`, enter the panel password if configured, and click **Arm autopilot** once. In armed idle, managed queues are already paused. Upload activity is normally detected in about 10 seconds and the configured interval must remain below 30 seconds. The armed state is stored in the named volume and survives restarts.
 
