@@ -4,7 +4,7 @@
 
 ## Status
 
-Version `0.1.2` implements the minimum safe orchestrator and is published for `linux/amd64` and `linux/arm64`. The API contract baseline is Immich `v3.1.0`. Compatibility with queue endpoints must be revalidated for later Immich major versions before strict control is enabled.
+Version `0.1.3` implements the minimum safe orchestrator and is published for `linux/amd64` and `linux/arm64`. The API contract baseline is Immich `v3.1.0`. Compatibility with queue endpoints must be revalidated for later Immich major versions before strict control is enabled.
 
 ## Product goal
 

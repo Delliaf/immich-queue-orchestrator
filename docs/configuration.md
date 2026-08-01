@@ -2,7 +2,7 @@
 
 [Русская версия](ru/configuration.md)
 
-The published image contains `/app/orchestrator.docker.yml` for simple deployments. A custom `/config/orchestrator.yml` can be mounted read-only and selected with `CONFIG_FILE`. The simple Compose setup reads the Immich API key and the optional panel password from `.env`; the real `.env` must never be committed. The advanced Compose example keeps file-based secrets as an optional stricter setup.
+The published image contains `/app/orchestrator.docker.yml` with all normal home-server defaults. A custom `/config/orchestrator.yml` can be mounted read-only and selected with `CONFIG_FILE`. The simple Compose setup loads the existing Immich `.env` directly through `env_file`; add `IMMICH_API_KEY` and, optionally, `ORCHESTRATOR_ADMIN_PASSWORD` to it. The real `.env` must never be committed. The advanced Compose example keeps file-based secrets and container hardening as an optional stricter setup.
 
 ## Bootstrap environment
 
@@ -25,6 +25,8 @@ The published image contains `/app/orchestrator.docker.yml` for simple deploymen
 | `ALLOW_LEGACY_START` | `true/false`; enables the missing-repair pass |
 
 The panel password is not an API token and is optional by default. The application imposes no length or character-composition requirements. It never logs the password or stores it under `/data`. Use `ORCHESTRATOR_ADMIN_PASSWORD` for a simple home deployment and `ORCHESTRATOR_ADMIN_PASSWORD_FILE` for a stricter setup.
+
+The quick-start port mapping, `8080:8080`, makes the panel reachable on the server's LAN and ZeroTier addresses. To restrict it to ZeroTier only, replace it with `<server-zerotier-ip>:8080:8080`. Use `127.0.0.1:8080:8080` for local or reverse-proxy-only access.
 
 `server.authentication` controls behavior:
 

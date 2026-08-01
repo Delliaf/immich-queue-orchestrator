@@ -1,10 +1,10 @@
 # Конфигурация
 
-<!-- translation-source: docs/configuration.md; source-sha256: dd4b518b0c29a5dc6e1f18f57b66372517b6ad01a2066853e63e74ce499c914e -->
+<!-- translation-source: docs/configuration.md; source-sha256: 8e921bb4e28b751eb77efab5c1f90e0737cf00fa1c5b591d007a2540ca647e15 -->
 
 [English](../configuration.md)
 
-В опубликованном image есть встроенный `/app/orchestrator.docker.yml` для простого запуска. Пользовательский `/config/orchestrator.yml` можно подключить read-only и выбрать через `CONFIG_FILE`. В простом Compose API key Immich и необязательный пароль панели читаются из `.env`; настоящий `.env` не должен попадать в Git. Расширенный Compose сохраняет файловые secrets как необязательный более строгий вариант.
+В опубликованном image есть встроенный `/app/orchestrator.docker.yml` со всеми обычными настройками для домашнего сервера. Пользовательский `/config/orchestrator.yml` можно подключить read-only и выбрать через `CONFIG_FILE`. Простой Compose напрямую подключает существующий `.env` Immich через `env_file`; добавьте в него `IMMICH_API_KEY` и, при желании, `ORCHESTRATOR_ADMIN_PASSWORD`. Настоящий `.env` не должен попадать в Git. Расширенный Compose сохраняет файловые secrets и усиленные ограничения контейнера как необязательный более строгий вариант.
 
 ## Bootstrap environment
 
@@ -27,6 +27,8 @@
 | `ALLOW_LEGACY_START` | `true/false`, включает missing repair-pass |
 
 Пароль панели не является API token и по умолчанию необязателен. Никаких требований к длине или составу нет. Пароль не печатается в логах и не сохраняется в `/data`. Для простого домашнего запуска используется `ORCHESTRATOR_ADMIN_PASSWORD`; для более строгой установки доступен `ORCHESTRATOR_ADMIN_PASSWORD_FILE`.
+
+Стандартная строка порта `8080:8080` делает панель доступной по LAN- и ZeroTier-адресам сервера. Чтобы оставить доступ только через ZeroTier, замените её на `<zerotier-ip-сервера>:8080:8080`. Для доступа только локально или через reverse proxy используйте `127.0.0.1:8080:8080`.
 
 `server.authentication` определяет поведение:
 

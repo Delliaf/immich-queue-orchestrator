@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3 - 2026-08-01
+
+- Fixed write permissions for newly created named state volumes while keeping the runtime process non-root.
+- Added a Docker CI probe that writes to `/data` with the production security restrictions.
+- Simplified the quick start to one `env_file`, one published port, and built-in low-resource defaults.
+- Made the panel reachable through the server's LAN and ZeroTier addresses by default.
+
 ## 0.1.2 - 2026-08-01
 
 - Moved the build, runtime image, and CI baseline to Node.js 24 LTS.
