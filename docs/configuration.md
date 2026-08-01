@@ -1,53 +1,55 @@
-# Конфигурация
+# Configuration
 
-В опубликованном image есть встроенный `/app/orchestrator.docker.yml` для простого запуска. Пользовательский `/config/orchestrator.yml` можно подключить read-only и выбрать через `CONFIG_FILE`. Immich API key простой Compose передаёт как mounted secret. Опциональный пароль панели приходит из `.env`; настоящий `.env` не должен попадать в Git.
+[Русская версия](ru/configuration.md)
+
+The published image contains `/app/orchestrator.docker.yml` for simple deployments. A custom `/config/orchestrator.yml` can be mounted read-only and selected with `CONFIG_FILE`. The simple Compose setup passes the Immich API key as a mounted secret. The optional panel password comes from `.env`; the real `.env` must never be committed.
 
 ## Bootstrap environment
 
-| Переменная | Назначение |
+| Variable | Purpose |
 |---|---|
-| `CONFIG_FILE` | Путь к YAML, default `./orchestrator.yml` локально и `/app/orchestrator.docker.yml` в image |
-| `DATA_DIR` | Durable state/journal, default `./data` или `/data` в image |
-| `IMMICH_URL` | Override `api.url` |
-| `IMMICH_API_KEY_FILE` | Рекомендуемый файл с Immich API key |
-| `IMMICH_API_KEY` | Менее безопасный inline secret |
-| `API_KEY` | Compose-friendly alias для `IMMICH_API_KEY` |
-| `ORCHESTRATOR_ADMIN_PASSWORD_FILE` | Файл с паролем панели |
-| `ORCHESTRATOR_ADMIN_PASSWORD` | Пароль панели прямо в environment |
-| `ORCHESTRATOR_HOST` / `ORCHESTRATOR_PORT` | Override bind address |
-| `LOG_LEVEL` | `debug`, `info`, `warn`, `error` |
-| `POLL_INTERVAL` | Активный polling; число без единицы считается секундами |
-| `GUARDED_IDLE_POLL_INTERVAL` | Детектор новых загрузок; обязательно меньше 30 секунд |
-| `STANDBY_POLL_INTERVAL` | Polling без вооружённого автопилота |
-| `UPLOAD_QUIET_PERIOD` | Период тишины автопилота, например `30m` |
-| `ALLOW_LEGACY_START` | `true/false`, включает missing repair-pass |
+| `CONFIG_FILE` | YAML path; defaults to `./orchestrator.yml` locally and `/app/orchestrator.docker.yml` in the image |
+| `DATA_DIR` | Durable state and journal; defaults to `./data` or `/data` in the image |
+| `IMMICH_URL` | Overrides `api.url` |
+| `IMMICH_API_KEY_FILE` | Recommended file containing the Immich API key |
+| `IMMICH_API_KEY` | Less secure inline secret |
+| `API_KEY` | Compose-friendly alias for `IMMICH_API_KEY` |
+| `ORCHESTRATOR_ADMIN_PASSWORD_FILE` | File containing the panel password |
+| `ORCHESTRATOR_ADMIN_PASSWORD` | Panel password supplied directly through the environment |
+| `ORCHESTRATOR_HOST` / `ORCHESTRATOR_PORT` | Override the bind address |
+| `LOG_LEVEL` | `debug`, `info`, `warn`, or `error` |
+| `POLL_INTERVAL` | Active polling; a number without a unit means seconds |
+| `GUARDED_IDLE_POLL_INTERVAL` | New-upload detector; must be below 30 seconds |
+| `STANDBY_POLL_INTERVAL` | Polling while autopilot is not armed |
+| `UPLOAD_QUIET_PERIOD` | Autopilot quiet period, for example `30m` |
+| `ALLOW_LEGACY_START` | `true/false`; enables the missing-repair pass |
 
-Пароль панели не является API token и по умолчанию необязателен. Никаких требований к длине или составу нет. Пароль не печатается в логах и не сохраняется в `/data`. Для простого домашнего запуска используется `ORCHESTRATOR_ADMIN_PASSWORD`; для более строгой установки доступен `ORCHESTRATOR_ADMIN_PASSWORD_FILE`.
+The panel password is not an API token and is optional by default. The application imposes no length or character-composition requirements. It never logs the password or stores it under `/data`. Use `ORCHESTRATOR_ADMIN_PASSWORD` for a simple home deployment and `ORCHESTRATOR_ADMIN_PASSWORD_FILE` for a stricter setup.
 
-`server.authentication` определяет поведение:
+`server.authentication` controls behavior:
 
-- `auto` — пароль включается, только если передано непустое значение;
-- `password` — пароль обязателен, отсутствие останавливает запуск;
-- `none` — вход по паролю принудительно отключён, даже если переменная задана.
+- `auto`: authentication is enabled only when a non-empty password is supplied;
+- `password`: a password is required and startup fails when it is missing;
+- `none`: password authentication is disabled even if a variable is present.
 
-При включённом пароле после пяти неверных попыток один IP блокируется на пять минут. Браузер хранит пароль только в `sessionStorage` текущей вкладки. Без пароля панель показывает предупреждение о trusted-network режиме.
+After five failed attempts, one IP address is blocked for five minutes. The browser keeps the password only in the current tab's `sessionStorage`. Without a password, the panel shows a trusted-network warning.
 
-## Разрешения Immich API key
+## Immich API key permissions
 
-Ключ должен принадлежать учётной записи администратора, поскольку queue и server statistics endpoints требуют admin context. Не выбирайте «все разрешения».
+The key must belong to an Immich administrator account because queue and server-statistics endpoints require administrator context. Do not grant every permission.
 
-Минимум для безопасной обработки уже созданных jobs:
+Minimum permissions for safely processing jobs that already exist:
 
 - `queue.read`;
 - `queue.update`;
 - `server.statistics`.
 
-Если включён `ALLOW_LEGACY_START=true` или `api.allowLegacyStart: true`, дополнительно нужны:
+If `ALLOW_LEGACY_START=true` or `api.allowLegacyStart: true`, also grant:
 
-- `job.create` — команда «проверить отсутствующие»;
-- `queueJob.read` — поиск доказательства выполненного start после сетевого сбоя или restart.
+- `job.create`: starts the missing-jobs check;
+- `queueJob.read`: searches for proof of a completed start after a network failure or restart.
 
-`queueJob.delete`, `job.read`, asset permissions и доступ ко всем API проекту не нужны.
+`queueJob.delete`, `job.read`, asset permissions, and project-wide API access are not required.
 
 ## Safety switches
 
@@ -59,10 +61,10 @@ api:
   allowLegacyStart: false
 ```
 
-- `dryRun: true` блокирует все mutations даже при нажатии кнопок.
-- `control.enabled: false` полностью отключает управление.
-- `allowLegacyStart: false` оставляет только queued-only обработку.
-- `strictMajorVersion: true` блокирует mutations на неизвестной major-версии Immich.
+- `dryRun: true` blocks every mutation, including actions requested from the panel.
+- `control.enabled: false` disables control completely.
+- `allowLegacyStart: false` allows queued-only processing.
+- `strictMajorVersion: true` blocks mutations against an unknown Immich major version.
 
 ## Autopilot
 
@@ -74,19 +76,19 @@ autopilot:
   newUploadDuringProcessing: pause-after-active-and-recapture
 ```
 
-В armed autopilot все managed queues остаются globally paused в idle. Детектор использует `photos + videos`, storage usage и pending counters. Это polling-эвристика: пауза телефона длиннее `autoEndAfter` может разделить импорт на два безопасных прохода.
+In armed autopilot, all managed queues remain globally paused while idle. The detector combines `photos + videos`, storage usage, and pending counters. This is a polling heuristic: a phone that pauses longer than `autoEndAfter` can split one import into two safe processing passes.
 
-Polling адаптивный: по умолчанию 5 секунд при активной обработке, 10 секунд в `GUARDED_IDLE` и 30 секунд без активного run. Таким образом начало загрузки обнаруживается раньше 30 секунд, но недельный простой не создаёт пятисекундных пробуждений.
+Polling is adaptive: the defaults are 5 seconds during active processing, 10 seconds in `GUARDED_IDLE`, and 30 seconds without an active run. Uploads are therefore detected within 30 seconds without five-second wakeups during a week of inactivity.
 
 ## Completion
 
-Stage считается завершённым, только если одновременно равны нулю:
+A stage completes only when all these values are zero at the same time:
 
 ```text
 active + waiting + paused + delayed
 ```
 
-Ноль должен сохраняться весь `scheduler.quietPeriod`. API error никогда не преобразуется в нулевой snapshot.
+Zero must remain stable for the entire `scheduler.quietPeriod`. An API error is never converted into an empty snapshot.
 
 ## CPU
 
@@ -97,9 +99,11 @@ loadGuard:
   movingAverageWindow: 30s
 ```
 
-`local-host` использует видимые контейнеру системные CPU counters. В Docker Desktop это нагрузка Linux VM. Для автоматического throttling:
+`local-host` reads the system CPU counters visible to the container. Under Docker Desktop, those counters describe the Linux VM.
 
-CPU sampling выключен в standby, `GUARDED_IDLE` и `CAPTURING_UPLOADS`. Он включается только в processing phases, где его результат способен приостановить выдачу jobs; при остановке накопленная выборка очищается.
+CPU sampling is disabled in standby, `GUARDED_IDLE`, and `CAPTURING_UPLOADS`. It runs only in processing phases where its result can pause job dispatch. The accumulated sample window is cleared when sampling stops.
+
+To enable automatic throttling:
 
 ```yaml
 loadGuard:
@@ -110,12 +114,12 @@ loadGuard:
   resumeFor: 60s
 ```
 
-`resumeBelow` обязан быть ниже `pauseAbove`. Pause не отменяет active job, а только останавливает выдачу следующих jobs.
+`resumeBelow` must be lower than `pauseAbove`. Pausing does not cancel an active job; it only prevents dispatch of subsequent jobs.
 
 ## Pipeline
 
-Pipeline — валидируемый DAG, но scheduler `0.1.0` выполняет его строго последовательно. `feature` связывает stage с `/api/server/features`. Отключённая функция удаляет соответствующий stage из run.
+The pipeline is a validated DAG, but the `0.1.0` scheduler executes it strictly in sequence. A `feature` connects a stage to `/api/server/features`; a disabled feature removes the corresponding stage from the run.
 
-Нельзя добавлять в managed list системные queues: `backgroundTask`, `migration`, `search`, `notifications`, `backupDatabase`, `workflow`, `integrityCheck`, `editor`.
+Do not add system queues to the managed list: `backgroundTask`, `migration`, `search`, `notifications`, `backupDatabase`, `workflow`, `integrityCheck`, or `editor`.
 
-`library` и `sidecar` намеренно отсутствуют в стандартном preset. Они требуют отдельных explicit maintenance operations, которых пока нет.
+`library` and `sidecar` are deliberately absent from the default preset. They require separate explicit maintenance operations that are not implemented yet.

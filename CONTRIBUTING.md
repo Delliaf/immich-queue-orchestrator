@@ -1,19 +1,21 @@
 # Contributing
 
-Требования: Node.js 22+, npm 10+.
+[Русская версия](CONTRIBUTING.ru.md)
+
+Requirements: Node.js 22+ and npm 10+.
 
 ```bash
 npm ci
 npm run check
 ```
 
-Изменения safety-critical поведения должны включать scenario test. Не копируйте код из GPL/AGPL queue orchestrators; реализация clean-room под Apache-2.0.
+Safety-critical behavior changes must include a scenario test. Do not copy code from GPL/AGPL queue orchestrators; this project is a clean-room Apache-2.0 implementation.
 
-Pull request должен описывать:
+A pull request must describe:
 
-- какой observed/desired invariant меняется;
-- поведение при timeout и restart;
-- влияние на unknown Immich versions/queues;
-- тесты и документацию.
+- which observed/desired invariant changes;
+- behavior after a timeout or restart;
+- impact on unknown Immich versions and queues;
+- tests and documentation changes.
 
-Не добавляйте Redis/PostgreSQL writes, Docker socket, force reprocessing или job deletion без отдельного threat model и явного major design decision.
+Do not add Redis/PostgreSQL writes, Docker socket access, forced reprocessing, or job deletion without a separate threat model and an explicit major design decision.

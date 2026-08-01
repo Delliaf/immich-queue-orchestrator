@@ -1,19 +1,21 @@
 # Security policy
 
+[Русская версия](SECURITY.ru.md)
+
 ## Deployment
 
-- Не публикуйте панель в интернет.
-- Default compose bind — `127.0.0.1`; при публикации за пределы доверенной сети используйте пароль панели и TLS/auth reverse proxy.
-- Передавайте Immich API key через Docker secret. Для строгой установки пароль панели также можно передать через `ORCHESTRATOR_ADMIN_PASSWORD_FILE`.
-- Храните реальные значения в `.env`, который исключён из Git и Docker build context; коммитьте только пустой `.env.example`.
-- На Linux ограничьте доступ к `.env` командой `chmod 600 .env`.
-- Запускайте read-only container без capabilities и без Docker socket.
-- Ограничьте права каталога `/data`: он содержит operational state и audit journal, но не API key.
+- Do not expose the panel directly to the internet.
+- The default Compose bind address is `127.0.0.1`. Outside a trusted network, use a panel password and a TLS/authentication reverse proxy.
+- Pass the Immich API key through a Docker secret. A stricter setup can also pass the panel password through `ORCHESTRATOR_ADMIN_PASSWORD_FILE`.
+- Keep real values in `.env`, which is excluded from Git and the Docker build context. Commit only the empty `.env.example`.
+- On Linux, restrict `.env` with `chmod 600 .env`.
+- Run the read-only container without capabilities or Docker socket access.
+- Restrict access to `/data`. It contains operational state and the audit journal, but not the API key.
 
 ## Reporting
 
-До появления публичного security advisory process сообщайте уязвимости владельцу репозитория приватным GitHub Security Advisory. Не прикладывайте реальные API keys, URL библиотеки или state/journal файлы без предварительной очистки.
+Report vulnerabilities privately through a GitHub Security Advisory for this repository. Do not attach real API keys, library URLs, or state/journal files unless they have been sanitized.
 
 ## Threat boundary
 
-Проект управляет pause/resume и optional missing-start через admin API key. В trusted-network режиме пароль панели может быть отключён; это явно отображается в UI и не подходит для публикации в интернет. Если пароль включён, он сравнивается за постоянное время, а повторные ошибки входа ограничиваются по IP. Проект намеренно не имеет доступа к Docker socket, Redis и PostgreSQL.
+The project controls pause/resume and the optional missing-job start through an administrator API key. Panel authentication can be disabled in trusted-network mode; the UI clearly identifies that mode, and it is unsuitable for internet exposure. When a password is enabled, it is compared in constant time and repeated failures are rate-limited by IP. The project deliberately has no access to the Docker socket, Redis, or PostgreSQL.
