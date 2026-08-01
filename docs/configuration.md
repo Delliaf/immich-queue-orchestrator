@@ -2,7 +2,7 @@
 
 [Русская версия](ru/configuration.md)
 
-The published image contains `/app/orchestrator.docker.yml` with all normal home-server defaults. A custom `/config/orchestrator.yml` can be mounted read-only and selected with `CONFIG_FILE`. The simple Compose setup loads the existing Immich `.env` directly through `env_file`; add `IMMICH_API_KEY` and, optionally, `ORCHESTRATOR_ADMIN_PASSWORD` to it. The real `.env` must never be committed. The advanced Compose example keeps file-based secrets and container hardening as an optional stricter setup.
+The published image contains `/app/orchestrator.docker.yml` with all normal home-server defaults. A custom `/config/orchestrator.yml` can be mounted read-only and selected with `CONFIG_FILE`. The simple Compose setup loads the existing Immich `.env` directly through `env_file`; add `ORCHESTRATOR_API_KEY` and, optionally, `ORCHESTRATOR_ADMIN_PASSWORD` to it. The application-specific key name prevents accidental key sharing with other tools that use the same `.env`. The real `.env` must never be committed. The advanced Compose example keeps file-based secrets and container hardening as an optional stricter setup.
 
 ## Bootstrap environment
 
@@ -11,9 +11,8 @@ The published image contains `/app/orchestrator.docker.yml` with all normal home
 | `CONFIG_FILE` | YAML path; defaults to `./orchestrator.yml` locally and `/app/orchestrator.docker.yml` in the image |
 | `DATA_DIR` | Durable state and journal; defaults to `./data` or `/data` in the image |
 | `IMMICH_URL` | Overrides `api.url` |
-| `IMMICH_API_KEY` | Immich API key; used by the simple `.env` setup |
-| `IMMICH_API_KEY_FILE` | Optional file containing the Immich API key for a stricter setup |
-| `API_KEY` | Compose-friendly alias for `IMMICH_API_KEY` |
+| `ORCHESTRATOR_API_KEY` | Dedicated Immich API key used only by this orchestrator in the simple `.env` setup |
+| `ORCHESTRATOR_API_KEY_FILE` | Optional file containing this orchestrator's Immich API key for a stricter setup |
 | `ORCHESTRATOR_ADMIN_PASSWORD_FILE` | File containing the panel password |
 | `ORCHESTRATOR_ADMIN_PASSWORD` | Panel password supplied directly through the environment |
 | `ORCHESTRATOR_HOST` / `ORCHESTRATOR_PORT` | Override the bind address |
@@ -24,7 +23,7 @@ The published image contains `/app/orchestrator.docker.yml` with all normal home
 | `UPLOAD_QUIET_PERIOD` | Autopilot quiet period, for example `30m` |
 | `ALLOW_LEGACY_START` | `true/false`; enables the missing-repair pass |
 
-The panel password is not an API token and is optional by default. The application imposes no length or character-composition requirements. It never logs the password or stores it under `/data`. Use `ORCHESTRATOR_ADMIN_PASSWORD` for a simple home deployment and `ORCHESTRATOR_ADMIN_PASSWORD_FILE` for a stricter setup.
+The panel password is not an API token and is optional by default. The application imposes no length or character-composition requirements. It never logs the password or stores it under `/data`. Use `ORCHESTRATOR_API_KEY` and `ORCHESTRATOR_ADMIN_PASSWORD` for a simple home deployment, or their `_FILE` variants for a stricter setup.
 
 The quick-start port mapping, `8080:8080`, makes the panel reachable on the server's LAN and ZeroTier addresses. To restrict it to ZeroTier only, replace it with `<server-zerotier-ip>:8080:8080`. Use `127.0.0.1:8080:8080` for local or reverse-proxy-only access.
 

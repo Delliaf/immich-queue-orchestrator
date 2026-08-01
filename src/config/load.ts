@@ -15,8 +15,8 @@ export async function loadConfig(path: string, environment: NodeJS.ProcessEnv = 
 }
 
 export async function loadSecrets(environment: NodeJS.ProcessEnv = process.env): Promise<RuntimeSecrets> {
-  const immichApiKey = await valueOrFile(environment.IMMICH_API_KEY ?? environment.API_KEY, environment.IMMICH_API_KEY_FILE);
-  if (!immichApiKey) throw new Error('Set IMMICH_API_KEY_FILE (recommended), IMMICH_API_KEY, or API_KEY');
+  const immichApiKey = await valueOrFile(environment.ORCHESTRATOR_API_KEY, environment.ORCHESTRATOR_API_KEY_FILE);
+  if (!immichApiKey) throw new Error('Set ORCHESTRATOR_API_KEY or ORCHESTRATOR_API_KEY_FILE');
   const adminPassword = await valueOrFile(
     environment.ORCHESTRATOR_ADMIN_PASSWORD,
     environment.ORCHESTRATOR_ADMIN_PASSWORD_FILE,

@@ -31,10 +31,19 @@ describe('environment configuration', () => {
     expect(config.autopilot.autoEndAfterMs).toBe(30 * 60_000);
   });
 
-  it('supports API_KEY as a compose-friendly alias', async () => {
-    const secrets = await loadSecrets({ API_KEY: 'immich-key', ORCHESTRATOR_ADMIN_PASSWORD: 'panel-password' });
+  it('loads the orchestrator-specific API key and optional panel password', async () => {
+    const secrets = await loadSecrets({
+      ORCHESTRATOR_API_KEY: 'immich-key',
+      ORCHESTRATOR_ADMIN_PASSWORD: 'panel-password',
+    });
     expect(secrets.immichApiKey).toBe('immich-key');
     expect(secrets.adminPassword).toBe('panel-password');
+  });
+
+  it('does not reuse API keys belonging to other services in a shared env file', async () => {
+    await expect(loadSecrets({ IMMICH_API_KEY: 'another-service-key', API_KEY: 'generic-key' })).rejects.toThrow(
+      'ORCHESTRATOR_API_KEY',
+    );
   });
 
   it('loads the simple Docker preset with automatic panel authentication', async () => {

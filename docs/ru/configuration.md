@@ -1,10 +1,10 @@
 # Конфигурация
 
-<!-- translation-source: docs/configuration.md; source-sha256: 8e921bb4e28b751eb77efab5c1f90e0737cf00fa1c5b591d007a2540ca647e15 -->
+<!-- translation-source: docs/configuration.md; source-sha256: 7268e7500f9ac310f36fe23832019ee3ddfa1f13f1f65e7f06c80799b2c39e23 -->
 
 [English](../configuration.md)
 
-В опубликованном image есть встроенный `/app/orchestrator.docker.yml` со всеми обычными настройками для домашнего сервера. Пользовательский `/config/orchestrator.yml` можно подключить read-only и выбрать через `CONFIG_FILE`. Простой Compose напрямую подключает существующий `.env` Immich через `env_file`; добавьте в него `IMMICH_API_KEY` и, при желании, `ORCHESTRATOR_ADMIN_PASSWORD`. Настоящий `.env` не должен попадать в Git. Расширенный Compose сохраняет файловые secrets и усиленные ограничения контейнера как необязательный более строгий вариант.
+В опубликованном image есть встроенный `/app/orchestrator.docker.yml` со всеми обычными настройками для домашнего сервера. Пользовательский `/config/orchestrator.yml` можно подключить read-only и выбрать через `CONFIG_FILE`. Простой Compose напрямую подключает существующий `.env` Immich через `env_file`; добавьте в него `ORCHESTRATOR_API_KEY` и, при желании, `ORCHESTRATOR_ADMIN_PASSWORD`. Отдельное имя ключа предотвращает случайное использование одного ключа несколькими инструментами из общего `.env`. Настоящий `.env` не должен попадать в Git. Расширенный Compose сохраняет файловые secrets и усиленные ограничения контейнера как необязательный более строгий вариант.
 
 ## Bootstrap environment
 
@@ -13,9 +13,8 @@
 | `CONFIG_FILE` | Путь к YAML, default `./orchestrator.yml` локально и `/app/orchestrator.docker.yml` в image |
 | `DATA_DIR` | Durable state/journal, default `./data` или `/data` в image |
 | `IMMICH_URL` | Override `api.url` |
-| `IMMICH_API_KEY` | API key Immich; используется в простом запуске через `.env` |
-| `IMMICH_API_KEY_FILE` | Необязательный файл с API key Immich для более строгого варианта |
-| `API_KEY` | Compose-friendly alias для `IMMICH_API_KEY` |
+| `ORCHESTRATOR_API_KEY` | Отдельный API key Immich только для этого оркестратора в простом запуске через `.env` |
+| `ORCHESTRATOR_API_KEY_FILE` | Необязательный файл с отдельным API key Immich этого оркестратора для более строгого варианта |
 | `ORCHESTRATOR_ADMIN_PASSWORD_FILE` | Файл с паролем панели |
 | `ORCHESTRATOR_ADMIN_PASSWORD` | Пароль панели прямо в environment |
 | `ORCHESTRATOR_HOST` / `ORCHESTRATOR_PORT` | Override bind address |
@@ -26,7 +25,7 @@
 | `UPLOAD_QUIET_PERIOD` | Период тишины автопилота, например `30m` |
 | `ALLOW_LEGACY_START` | `true/false`, включает missing repair-pass |
 
-Пароль панели не является API token и по умолчанию необязателен. Никаких требований к длине или составу нет. Пароль не печатается в логах и не сохраняется в `/data`. Для простого домашнего запуска используется `ORCHESTRATOR_ADMIN_PASSWORD`; для более строгой установки доступен `ORCHESTRATOR_ADMIN_PASSWORD_FILE`.
+Пароль панели не является API token и по умолчанию необязателен. Никаких требований к длине или составу нет. Пароль не печатается в логах и не сохраняется в `/data`. Для простого домашнего запуска используются `ORCHESTRATOR_API_KEY` и `ORCHESTRATOR_ADMIN_PASSWORD`; для более строгой установки доступны их варианты с суффиксом `_FILE`.
 
 Стандартная строка порта `8080:8080` делает панель доступной по LAN- и ZeroTier-адресам сервера. Чтобы оставить доступ только через ZeroTier, замените её на `<zerotier-ip-сервера>:8080:8080`. Для доступа только локально или через reverse proxy используйте `127.0.0.1:8080:8080`.
 
