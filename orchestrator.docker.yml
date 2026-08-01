@@ -18,7 +18,7 @@ api:
 
 server:
   host: 0.0.0.0
-  port: 8080
+  port: 8005
   trustProxy: false
   # auto: a non-empty ORCHESTRATOR_ADMIN_PASSWORD enables login; no password means trusted-network mode.
   authentication: auto

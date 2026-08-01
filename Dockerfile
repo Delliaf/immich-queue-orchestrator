@@ -22,6 +22,6 @@ COPY --chown=node:node orchestrator.docker.yml ./orchestrator.docker.yml
 RUN install -d -o node -g node -m 0700 /data
 
 USER node
-EXPOSE 8080
+EXPOSE 8005
 
 CMD ["node", "dist/main.js"]

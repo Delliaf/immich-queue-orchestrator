@@ -1,13 +1,13 @@
 # Security policy
 
-<!-- translation-source: SECURITY.md; source-sha256: cd6371ff69ba044a58d2c15b8f905ff2318fc218ccb9e61c6a77ac980dbaeb2a -->
+<!-- translation-source: SECURITY.md; source-sha256: 03a254c251cb2eaf9e10296cedbffc0dff320957d0c4e37b26124fa7d6616cf0 -->
 
 [English](SECURITY.md)
 
 ## Deployment
 
 - Не публикуйте панель в интернет.
-- Стандартная строка быстрого запуска `8080:8080` доступна через LAN- и ZeroTier-адреса сервера. В общей сети используйте пароль панели. Чтобы оставить доступ только через ZeroTier, привяжите порт к конкретному ZeroTier-IP сервера; за пределами доверенной сети используйте TLS/auth reverse proxy.
+- Стандартная строка быстрого запуска `8005:8005` доступна через LAN- и ZeroTier-адреса сервера. В общей сети используйте пароль панели. Чтобы оставить доступ только через ZeroTier, привяжите порт к конкретному ZeroTier-IP сервера; за пределами доверенной сети используйте TLS/auth reverse proxy.
 - В простом варианте Immich API key и необязательный пароль панели хранятся в `.env`. В более строгом варианте их можно передать через `ORCHESTRATOR_API_KEY_FILE` и `ORCHESTRATOR_ADMIN_PASSWORD_FILE`.
 - Храните реальные значения в `.env`, который исключён из Git и Docker build context; коммитьте только пустой `.env.example`.
 - На Linux ограничьте доступ к `.env` командой `chmod 600 .env`.

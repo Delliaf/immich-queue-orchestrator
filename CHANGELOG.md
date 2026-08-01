@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5 - 2026-08-01
+
+- Changed the default web panel port from `8080` to the less commonly used port `8005` across the application, container, Compose examples, and documentation.
+
 ## 0.1.4 - 2026-08-01
 
 - Renamed the quick-start Immich credential to `ORCHESTRATOR_API_KEY` so services sharing one `.env` do not accidentally share an API key.

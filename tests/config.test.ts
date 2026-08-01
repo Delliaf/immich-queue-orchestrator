@@ -10,6 +10,7 @@ describe('configuration', () => {
     expect(config.control.enabled).toBe(false);
     expect(config.api.allowLegacyStart).toBe(false);
     expect(config.server.authentication).toBe('auto');
+    expect(config.server.port).toBe(8005);
     expect(config.autopilot.autoEndAfterMs).toBe(30 * 60_000);
     expect(config.scheduler.guardedIdlePollIntervalMs).toBe(10_000);
     expect(config.scheduler.standbyPollIntervalMs).toBe(30_000);
