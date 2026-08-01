@@ -4,7 +4,7 @@
 
 An independent controller for Immich background queues on home servers with limited CPU and memory.
 
-> Status: early release `0.1.4`. API contracts were validated against Immich `v3.1.0`. Start with `dryRun: true` on a real library and keep a backup.
+> Status: early release `0.1.5`. API contracts were validated against Immich `v3.1.0`. Start with `dryRun: true` on a real library and keep a backup.
 
 ## What it does
 
@@ -41,7 +41,7 @@ Add this service under the existing `services:` section:
     env_file:
       - .env
     ports:
-      - "8080:8080"
+      - "8005:8005"
     volumes:
       - immich_queue_orchestrator_data:/data
     depends_on:
@@ -72,9 +72,9 @@ The default `server.authentication: auto` mode behaves as follows:
 
 The built-in image configuration already contains the Immich service URL, upload timing, sequential processing, and low-memory Node.js settings. `ORCHESTRATOR_API_KEY` deliberately has an application-specific name so another service such as Immich Power Tools can use its own Immich API key in the same `.env`. The API key and the optional panel password are read directly from the same `.env` that Immich already uses. The real `.env` is excluded from Git and the Docker build context; only an empty `.env.example` is committed. The panel password is a normal password for this panel, not an API token or an Immich key. When authentication is disabled, the panel displays a prominent warning. Do not expose that mode to the internet.
 
-Then run `docker compose up -d immich-queue-orchestrator`, open `http://<server-ip>:8080`, enter the panel password if configured, and click **Arm autopilot** once. In armed idle, managed queues are already paused. Upload activity is normally detected in about 10 seconds and the configured interval must remain below 30 seconds. The armed state is stored in the named volume and survives restarts.
+Then run `docker compose up -d immich-queue-orchestrator`, open `http://<server-ip>:8005`, enter the panel password if configured, and click **Arm autopilot** once. In armed idle, managed queues are already paused. Upload activity is normally detected in about 10 seconds and the configured interval must remain below 30 seconds. The armed state is stored in the named volume and survives restarts.
 
-The default `8080:8080` mapping works through both the server's LAN and ZeroTier addresses. From another device, `127.0.0.1` points to that device itself, not to the server; use `http://<server-zerotier-ip>:8080`. To expose the panel only through ZeroTier, change the port mapping to `<server-zerotier-ip>:8080:8080`.
+The default `8005:8005` mapping works through both the server's LAN and ZeroTier addresses. From another device, `127.0.0.1` points to that device itself, not to the server; use `http://<server-zerotier-ip>:8005`. To expose the panel only through ZeroTier, change the port mapping to `<server-zerotier-ip>:8005:8005`.
 
 A ready-to-merge service definition is available in [`compose.simple.yml`](compose.simple.yml).
 
@@ -100,7 +100,7 @@ With `ALLOW_LEGACY_START=false`, only jobs already created by Immich are process
    docker compose -f compose.example.yml up -d --build
    ```
 
-4. Open the panel locally or through an SSH tunnel at `http://127.0.0.1:8080` and enter the panel password.
+4. Open the panel locally or through an SSH tunnel at `http://127.0.0.1:8005` and enter the panel password.
 5. Keep `dryRun: true` for the first start and verify the Immich version, queues, and effective configuration.
 6. Set `dryRun: false`, recreate the container, and click **Arm autopilot** to enable control.
 

@@ -25,7 +25,7 @@ The published image contains `/app/orchestrator.docker.yml` with all normal home
 
 The panel password is not an API token and is optional by default. The application imposes no length or character-composition requirements. It never logs the password or stores it under `/data`. Use `ORCHESTRATOR_API_KEY` and `ORCHESTRATOR_ADMIN_PASSWORD` for a simple home deployment, or their `_FILE` variants for a stricter setup.
 
-The quick-start port mapping, `8080:8080`, makes the panel reachable on the server's LAN and ZeroTier addresses. To restrict it to ZeroTier only, replace it with `<server-zerotier-ip>:8080:8080`. Use `127.0.0.1:8080:8080` for local or reverse-proxy-only access.
+The default panel port is `8005`. The quick-start mapping, `8005:8005`, makes the panel reachable on the server's LAN and ZeroTier addresses. To restrict it to ZeroTier only, replace it with `<server-zerotier-ip>:8005:8005`. Use `127.0.0.1:8005:8005` for local or reverse-proxy-only access.
 
 `server.authentication` controls behavior:
 

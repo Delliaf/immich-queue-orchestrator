@@ -52,7 +52,7 @@ const RawConfigSchema = z.object({
   server: z
     .object({
       host: z.string().default('127.0.0.1'),
-      port: z.number().int().min(1).max(65535).default(8080),
+      port: z.number().int().min(1).max(65535).default(8005),
       trustProxy: z.boolean().default(false),
       authentication: z.enum(['auto', 'password', 'none']).default('auto'),
     })
