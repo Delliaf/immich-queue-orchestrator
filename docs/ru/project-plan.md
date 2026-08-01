@@ -1,12 +1,12 @@
 # План проекта
 
-<!-- translation-source: docs/project-plan.md; source-sha256: 35c166c6b1ba750c365443d8b7cdeae783875c2a91790e2ceb84defd8a9c7d75 -->
+<!-- translation-source: docs/project-plan.md; source-sha256: 14328defbb7eebdb88aa2691e9534c6b2e54e9f45106e02739211f6501ecffd1 -->
 
 [English](../project-plan.md)
 
 ## Статус
 
-Версия `0.1.2` реализует минимальный безопасный оркестратор и опубликована для `linux/amd64` и `linux/arm64`. Базовая версия проверки API-контрактов — Immich `v3.1.0`. Перед включением строгого управления на следующих major-версиях Immich совместимость queue endpoints нужно проверять заново.
+Версия `0.1.3` реализует минимальный безопасный оркестратор и опубликована для `linux/amd64` и `linux/arm64`. Базовая версия проверки API-контрактов — Immich `v3.1.0`. Перед включением строгого управления на следующих major-версиях Immich совместимость queue endpoints нужно проверять заново.
 
 ## Цель продукта
 

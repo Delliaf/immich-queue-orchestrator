@@ -1,13 +1,13 @@
 # Security policy
 
-<!-- translation-source: SECURITY.md; source-sha256: 4d46a158b04358f97fef786b9e39a31af6c989234667e36e39be0c1635b2efa7 -->
+<!-- translation-source: SECURITY.md; source-sha256: dd82fe92a86083f44311a7efddd328a680fc31fa72aecb3be9ab1bd0afa911eb -->
 
 [English](SECURITY.md)
 
 ## Deployment
 
 - Не публикуйте панель в интернет.
-- Default compose bind — `127.0.0.1`; при публикации за пределы доверенной сети используйте пароль панели и TLS/auth reverse proxy.
+- Default compose bind — `127.0.0.1`; для доступа только через ZeroTier привяжите опубликованный порт к конкретному ZeroTier-IP сервера. При публикации за пределы доверенной сети используйте пароль панели и TLS/auth reverse proxy.
 - В простом варианте Immich API key и необязательный пароль панели хранятся в `.env`. В более строгом варианте их можно передать через `IMMICH_API_KEY_FILE` и `ORCHESTRATOR_ADMIN_PASSWORD_FILE`.
 - Храните реальные значения в `.env`, который исключён из Git и Docker build context; коммитьте только пустой `.env.example`.
 - На Linux ограничьте доступ к `.env` командой `chmod 600 .env`.

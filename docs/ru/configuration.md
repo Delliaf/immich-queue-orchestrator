@@ -1,6 +1,6 @@
 # Конфигурация
 
-<!-- translation-source: docs/configuration.md; source-sha256: dd4b518b0c29a5dc6e1f18f57b66372517b6ad01a2066853e63e74ce499c914e -->
+<!-- translation-source: docs/configuration.md; source-sha256: bf0a1b7710a679b77aef2dd55a2fa1b85f1a5fbd9f8b1ac54af35a0a99a4c4d2 -->
 
 [English](../configuration.md)
 
@@ -19,6 +19,7 @@
 | `ORCHESTRATOR_ADMIN_PASSWORD_FILE` | Файл с паролем панели |
 | `ORCHESTRATOR_ADMIN_PASSWORD` | Пароль панели прямо в environment |
 | `ORCHESTRATOR_HOST` / `ORCHESTRATOR_PORT` | Override bind address |
+| `IMMICH_QUEUE_ORCHESTRATOR_BIND_IP` | Адрес привязки порта на стороне Compose; укажите ZeroTier-IP сервера для доступа только через ZeroTier |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, `error` |
 | `POLL_INTERVAL` | Активный polling; число без единицы считается секундами |
 | `GUARDED_IDLE_POLL_INTERVAL` | Детектор новых загрузок; обязательно меньше 30 секунд |

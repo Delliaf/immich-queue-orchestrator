@@ -36,3 +36,18 @@ A polling failure never means that a queue is empty. The controller preserves st
 ## Backup
 
 Back up the `/data` volume together with the configuration. Back up the API key and, if used, the panel password separately as secrets. Do not edit `journal.jsonl` while the container is running.
+
+## State volume permission error
+
+Release `0.1.3` initializes new named volumes with the non-root runtime user's ownership. If a volume was created by an earlier release and logs contain `EACCES` for `/data/journal.jsonl`, stop the service and repair that exact volume once:
+
+```bash
+docker compose stop immich-queue-orchestrator
+docker run --rm --user root \
+  -v <compose-volume-name>:/data \
+  ghcr.io/delliaf/immich-queue-orchestrator:latest \
+  chown -R node:node /data
+docker compose up -d immich-queue-orchestrator
+```
+
+Obtain the exact volume name with `docker volume ls`; do not substitute an unverified volume.

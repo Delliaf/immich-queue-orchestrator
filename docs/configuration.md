@@ -17,6 +17,7 @@ The published image contains `/app/orchestrator.docker.yml` for simple deploymen
 | `ORCHESTRATOR_ADMIN_PASSWORD_FILE` | File containing the panel password |
 | `ORCHESTRATOR_ADMIN_PASSWORD` | Panel password supplied directly through the environment |
 | `ORCHESTRATOR_HOST` / `ORCHESTRATOR_PORT` | Override the bind address |
+| `IMMICH_QUEUE_ORCHESTRATOR_BIND_IP` | Compose host-side bind address; use the server's ZeroTier IP for ZeroTier-only access |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, or `error` |
 | `POLL_INTERVAL` | Active polling; a number without a unit means seconds |
 | `GUARDED_IDLE_POLL_INTERVAL` | New-upload detector; must be below 30 seconds |

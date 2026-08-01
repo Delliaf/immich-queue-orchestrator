@@ -33,4 +33,19 @@ jobs:
         with:
           context: .
           push: false
+          load: true
           tags: immich-queue-orchestrator:ci
+      - name: Verify writable state volume
+        shell: bash
+        run: |
+          volume="immich-queue-orchestrator-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker volume create "$volume"
+          trap 'docker volume rm -f "$volume"' EXIT
+          docker run --rm \
+            --read-only \
+            --cap-drop=ALL \
+            --security-opt no-new-privileges=true \
+            --mount "type=volume,source=$volume,target=/data" \
+            --entrypoint node \
+            immich-queue-orchestrator:ci \
+            -e "require('node:fs').writeFileSync('/data/ci-write-probe', 'ok')"

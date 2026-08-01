@@ -1,6 +1,6 @@
 # Восстановление
 
-<!-- translation-source: docs/recovery.md; source-sha256: 166570b3006d3b0edd552b01f4215aadbfb0a21f3be0107f6801a7944e85b65b -->
+<!-- translation-source: docs/recovery.md; source-sha256: cc560220bfed94814d15a2c8d8f671d4f02798e5b6d54eb3beefd999e7416a64 -->
 
 [English](../recovery.md)
 
@@ -38,3 +38,18 @@
 ## Резервное копирование
 
 Сохраняйте volume `/data` вместе с конфигурацией. API key и, если используется, пароль панели резервируются отдельно как secrets. Не редактируйте `journal.jsonl` во время работы контейнера.
+
+## Ошибка прав state volume
+
+Начиная с `0.1.3` новые named volumes получают владельца непривилегированного runtime-пользователя. Если volume создан предыдущим релизом, а в логах есть `EACCES` для `/data/journal.jsonl`, остановите сервис и один раз исправьте владельца именно этого volume:
+
+```bash
+docker compose stop immich-queue-orchestrator
+docker run --rm --user root \
+  -v <имя-compose-volume>:/data \
+  ghcr.io/delliaf/immich-queue-orchestrator:latest \
+  chown -R node:node /data
+docker compose up -d immich-queue-orchestrator
+```
+
+Точное имя получите через `docker volume ls`; не подставляйте непроверенный volume.

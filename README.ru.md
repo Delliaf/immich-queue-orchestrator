@@ -1,12 +1,12 @@
 # Immich Queue Orchestrator
 
-<!-- translation-source: README.md; source-sha256: 3b0996fb28271de7011b0bf41ce7d343aec1151a9aefc13ffcb81f3448b87583 -->
+<!-- translation-source: README.md; source-sha256: e4c26703901e0ca0885693c6f276dc9b7c814b9af94735c0cc0900e469fae1e1 -->
 
 [English](README.md)
 
 Внешний контроллер фоновых очередей Immich для домашних серверов с ограниченными CPU и RAM.
 
-> Статус: ранний релиз `0.1.2`. Контракты проверены по Immich `v3.1.0`. До первого запуска на реальной библиотеке используйте `dryRun: true` и сделайте резервную копию.
+> Статус: ранний релиз `0.1.3`. Контракты проверены по Immich `v3.1.0`. До первого запуска на реальной библиотеке используйте `dryRun: true` и сделайте резервную копию.
 
 ## Что он делает
 
@@ -53,7 +53,7 @@ GUARDED_IDLE (managed queues paused)
     volumes:
       - immich_queue_orchestrator_data:/data
     ports:
-      - 127.0.0.1:8080:8080
+      - "${IMMICH_QUEUE_ORCHESTRATOR_BIND_IP:-127.0.0.1}:8080:8080"
     depends_on:
       immich-server:
         condition: service_healthy
@@ -86,6 +86,8 @@ chmod 600 .env
 IMMICH_QUEUE_ORCHESTRATOR_API_KEY=отдельный_API_ключ_Immich
 # Необязательно. Оставьте пустым, если пароль в доверенной домашней сети не нужен.
 IMMICH_QUEUE_ORCHESTRATOR_ADMIN_PASSWORD=
+# Для доступа только через ZeroTier укажите ZeroTier-IP сервера.
+IMMICH_QUEUE_ORCHESTRATOR_BIND_IP=127.0.0.1
 ```
 
 По умолчанию используется `server.authentication: auto`:
@@ -96,7 +98,9 @@ IMMICH_QUEUE_ORCHESTRATOR_ADMIN_PASSWORD=
 
 API key и необязательный пароль панели читаются из `.env`. Настоящий `.env` исключён из Git и Docker build context; в репозитории остаётся только пустой `.env.example`. Пароль панели — обычный пароль нашей панели, не API token и не ключ Immich. Если пароль не используется, панель показывает заметное предупреждение. Не публикуйте такой режим в интернет.
 
-Затем выполните `docker compose up -d immich-queue-orchestrator`, откройте `http://127.0.0.1:8080`, при необходимости введите настроенный пароль панели и один раз нажмите «Включить автопилот». В armed idle управляемые очереди уже стоят на паузе, а появление загрузки обнаруживается обычно за 10 секунд и гарантированно настраивается ниже 30 секунд. Armed state хранится в named volume и переживает перезапуски.
+Затем выполните `docker compose up -d immich-queue-orchestrator`, откройте настроенный адрес на порту `8080`, при необходимости введите пароль панели и один раз нажмите «Включить автопилот». В armed idle управляемые очереди уже стоят на паузе, а появление загрузки обнаруживается обычно за 10 секунд и гарантированно настраивается ниже 30 секунд. Armed state хранится в named volume и переживает перезапуски.
+
+Для доступа только через ZeroTier задайте `IMMICH_QUEUE_ORCHESTRATOR_BIND_IP` равным ZeroTier-адресу сервера Immich, пересоздайте контейнер и откройте `http://<zerotier-ip>:8080`. Привязка к конкретному ZeroTier-адресу не публикует панель на остальных интерфейсах сервера.
 
 Готовый фрагмент для добавления в существующий Compose находится в [`compose.simple.yml`](compose.simple.yml).
 

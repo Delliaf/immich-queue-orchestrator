@@ -18,7 +18,7 @@ services:
     volumes:
       - immich_queue_orchestrator_data:/data
     ports:
-      - 127.0.0.1:8080:8080
+      - "${IMMICH_QUEUE_ORCHESTRATOR_BIND_IP:-127.0.0.1}:8080:8080"
     depends_on:
       immich-server:
         condition: service_healthy

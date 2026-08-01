@@ -4,7 +4,7 @@
 
 An independent controller for Immich background queues on home servers with limited CPU and memory.
 
-> Status: early release `0.1.2`. API contracts were validated against Immich `v3.1.0`. Start with `dryRun: true` on a real library and keep a backup.
+> Status: early release `0.1.3`. API contracts were validated against Immich `v3.1.0`. Start with `dryRun: true` on a real library and keep a backup.
 
 ## What it does
 
@@ -51,7 +51,7 @@ Add this service under the existing `services:` section:
     volumes:
       - immich_queue_orchestrator_data:/data
     ports:
-      - 127.0.0.1:8080:8080
+      - "${IMMICH_QUEUE_ORCHESTRATOR_BIND_IP:-127.0.0.1}:8080:8080"
     depends_on:
       immich-server:
         condition: service_healthy
@@ -84,6 +84,8 @@ chmod 600 .env
 IMMICH_QUEUE_ORCHESTRATOR_API_KEY=a_dedicated_Immich_API_key
 # Optional. Leave empty if a password is unnecessary on your trusted home network.
 IMMICH_QUEUE_ORCHESTRATOR_ADMIN_PASSWORD=
+# Use the server's ZeroTier IP for ZeroTier-only panel access.
+IMMICH_QUEUE_ORCHESTRATOR_BIND_IP=127.0.0.1
 ```
 
 The default `server.authentication: auto` mode behaves as follows:
@@ -94,7 +96,9 @@ The default `server.authentication: auto` mode behaves as follows:
 
 The API key and the optional panel password are read from `.env`. The real `.env` is excluded from Git and the Docker build context; only an empty `.env.example` is committed. The panel password is a normal password for this panel, not an API token or an Immich key. When authentication is disabled, the panel displays a prominent warning. Do not expose that mode to the internet.
 
-Then run `docker compose up -d immich-queue-orchestrator`, open `http://127.0.0.1:8080`, enter the panel password if configured, and click **Arm autopilot** once. In armed idle, managed queues are already paused. Upload activity is normally detected in about 10 seconds and the configured interval must remain below 30 seconds. The armed state is stored in the named volume and survives restarts.
+Then run `docker compose up -d immich-queue-orchestrator`, open the configured address on port `8080`, enter the panel password if configured, and click **Arm autopilot** once. In armed idle, managed queues are already paused. Upload activity is normally detected in about 10 seconds and the configured interval must remain below 30 seconds. The armed state is stored in the named volume and survives restarts.
+
+For ZeroTier-only access, set `IMMICH_QUEUE_ORCHESTRATOR_BIND_IP` to the ZeroTier address assigned to the Immich server, recreate the container, and open `http://<zerotier-ip>:8080`. Binding the specific ZeroTier address avoids exposing the panel on the server's other interfaces.
 
 A ready-to-merge service definition is available in [`compose.simple.yml`](compose.simple.yml).
 
