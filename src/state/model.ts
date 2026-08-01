@@ -25,7 +25,7 @@ export type RunMode = z.infer<typeof RunModeSchema>;
 
 export const StageStatusSchema = z.enum(['pending', 'draining', 'repair-settling', 'repairing', 'completed']);
 export type StageStatus = z.infer<typeof StageStatusSchema>;
-export const DiscoveryStatusSchema = z.enum(['pending', 'running', 'complete', 'skipped']);
+export const DiscoveryStatusSchema = z.enum(['pending', 'running', 'stabilizing', 'complete', 'skipped']);
 export type DiscoveryStatus = z.infer<typeof DiscoveryStatusSchema>;
 
 const ActivitySnapshotSchema = z.object({
@@ -46,6 +46,11 @@ const StageRuntimeSchema = z.object({
   completedAt: z.string().nullable(),
   discoveryStatus: DiscoveryStatusSchema.default('pending'),
   inventoryCount: z.number().int().nonnegative().default(0),
+  inventoryInitialCount: z.number().int().nonnegative().default(0),
+  inventoryStabilized: z.boolean().default(false),
+  stabilizationStartedAt: z.string().nullable().default(null),
+  stabilizationSampleAt: z.string().nullable().default(null),
+  stabilizationSampleCount: z.number().int().nonnegative().nullable().default(null),
   discoveryStartedAt: z.string().nullable().default(null),
   discoveryCompletedAt: z.string().nullable().default(null),
   discoveryJobSeen: z.boolean().default(false),
@@ -62,6 +67,11 @@ export interface StageRuntime {
   completedAt: string | null;
   discoveryStatus: DiscoveryStatus;
   inventoryCount: number;
+  inventoryInitialCount: number;
+  inventoryStabilized: boolean;
+  stabilizationStartedAt: string | null;
+  stabilizationSampleAt: string | null;
+  stabilizationSampleCount: number | null;
   discoveryStartedAt: string | null;
   discoveryCompletedAt: string | null;
   discoveryJobSeen: boolean;
@@ -155,6 +165,11 @@ export const createStageRuntime = (stage: PipelineStage): StageRuntime => ({
   completedAt: null,
   discoveryStatus: 'pending',
   inventoryCount: 0,
+  inventoryInitialCount: 0,
+  inventoryStabilized: false,
+  stabilizationStartedAt: null,
+  stabilizationSampleAt: null,
+  stabilizationSampleCount: null,
   discoveryStartedAt: null,
   discoveryCompletedAt: null,
   discoveryJobSeen: false,
@@ -172,6 +187,11 @@ export const resetStages = (stages: StageRuntime[]): StageRuntime[] =>
     completedAt: null,
     discoveryStatus: 'pending',
     inventoryCount: 0,
+    inventoryInitialCount: 0,
+    inventoryStabilized: false,
+    stabilizationStartedAt: null,
+    stabilizationSampleAt: null,
+    stabilizationSampleCount: null,
     discoveryStartedAt: null,
     discoveryCompletedAt: null,
     discoveryJobSeen: false,

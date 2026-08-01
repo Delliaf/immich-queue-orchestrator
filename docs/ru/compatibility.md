@@ -1,6 +1,6 @@
 # Совместимость с Immich
 
-<!-- translation-source: docs/compatibility.md; source-sha256: 01fd1fc5fa3803828cc9c5366c7b524a1cd1245aa61d44dd8b348576bd008fcf -->
+<!-- translation-source: docs/compatibility.md; source-sha256: 43e6d6168e2be6d1b9f2af2faf89f85e7185c338eee541068b547faf7c0f68e3 -->
 
 <!-- translation-source: docs/compatibility.md; source-sha256: pending -->
 
@@ -26,6 +26,10 @@ Runtime responses валидируются через Zod. Неизвестны�
 
 Missing endpoint добавляет generator `QueueAll` в собственную целевую очередь. Поэтому paused-очередь не может создать инвентаризацию до временного resume. Оркестратор работает по одной очереди, наблюдает ожидаемый generator, после его исчезновения ставит managed-очередь на паузу и фиксирует оставшийся pending count. Существующий после restart generator принимается без дублирования; после прерывания загрузкой за ним выполняется ещё одна новая проверка.
 
+Metadata extraction, sidecar, duplicate detection и facial recognition могут ненадолго показывать большой generated pending count, который быстро убывает на skipped/already-processed work. Оркестратор умеет наблюдать его падение ограниченными окнами и использовать стабильный остаток для панели и shortest-first priority.
+
+Storage Template Migration намеренно исключена. В проверенном server это одна non-concurrent job, которая потоково проходит assets и перемещает файлы; её `active=1` не показывает оставшееся число assets. Системная Migration queue также исключена.
+
 Endpoint неидемпотентен, а replacement bulk-start endpoint в проверенной версии отсутствует. Неоднозначная доставка требует решения оператора вместо автоматического retry.
 
 ## Ограничения счётчиков
@@ -35,3 +39,4 @@ Endpoint неидемпотентен, а replacement bulk-start endpoint в п�
 - `isPaused` — глобальное состояние очереди, `statistics.paused` — число jobs в paused list.
 - Pause не отменяет active jobs.
 - Immich не разрешает ставить `backgroundTask` на паузу.
+- Прогресс storage migration невозможно определить по обычным queue counts.

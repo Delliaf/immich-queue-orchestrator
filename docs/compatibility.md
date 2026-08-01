@@ -22,6 +22,10 @@ The nine default bulk names are thumbnail generation, metadata extraction, sidec
 
 The missing endpoint enqueues a `QueueAll` generator into its own target queue. A paused queue therefore cannot generate its inventory until temporarily resumed. The orchestrator handles one queue at a time, observes the expected generator, pauses a managed queue after it disappears, and records the remaining pending count. A generator already present after a restart is adopted rather than duplicated; after an upload interruption it is followed by one new scan.
 
+Metadata extraction, sidecar, duplicate detection, and facial recognition may briefly expose a large generated pending count that drains mostly as skipped/already-processed work. The orchestrator can observe its decay in bounded windows and use the stabilized remainder for display and shortest-first priority.
+
+Storage Template Migration is intentionally excluded. In the validated server it is a single non-concurrent job that streams through assets and moves files; its `active=1` counter does not represent remaining assets. The system Migration queue is excluded as well.
+
 The endpoint itself is non-idempotent and has no replacement bulk-start endpoint in the validated version. Ambiguous delivery requires operator confirmation rather than an automatic retry.
 
 ## Counter limitations
@@ -31,3 +35,4 @@ The endpoint itself is non-idempotent and has no replacement bulk-start endpoint
 - `isPaused` is global queue state; `statistics.paused` is the paused job count.
 - Active jobs cannot be cancelled by pausing.
 - Immich does not allow pausing `backgroundTask`.
+- Storage migration progress cannot be inferred from ordinary queue counts.

@@ -5,11 +5,25 @@ import { QueueNameSchema, type QueueName } from '../domain/queues.js';
 export const QueuePolicySchema = z.enum(['managed', 'always-running', 'ignored']);
 export type QueuePolicy = z.infer<typeof QueuePolicySchema>;
 
-export const QueueRuntimeSettingSchema = z.object({
-  queue: QueueNameSchema,
-  policy: QueuePolicySchema,
-  checkMissing: z.boolean(),
-});
+export const DEFAULT_TRANSIENT_COUNTER_QUEUES: readonly QueueName[] = [
+  'sidecar',
+  'metadataExtraction',
+  'duplicateDetection',
+  'facialRecognition',
+];
+
+export const QueueRuntimeSettingSchema = z
+  .object({
+    queue: QueueNameSchema,
+    policy: QueuePolicySchema,
+    checkMissing: z.boolean(),
+    stabilizeTransientCount: z.boolean().optional(),
+  })
+  .transform((setting) => ({
+    ...setting,
+    stabilizeTransientCount:
+      setting.stabilizeTransientCount ?? DEFAULT_TRANSIENT_COUNTER_QUEUES.includes(setting.queue),
+  }));
 export type QueueRuntimeSetting = z.infer<typeof QueueRuntimeSettingSchema>;
 
 export const RuntimeSettingsSchema = z
@@ -18,6 +32,7 @@ export const RuntimeSettingsSchema = z
     automation: z.object({
       scanOnAutopilotStart: z.boolean(),
       scanOnManualStart: z.boolean(),
+      processingPriority: z.enum(['configured-order', 'smallest-first']).default('configured-order'),
       uploadQuietPeriodMs: z.number().int().min(0).max(24 * 60 * 60_000),
       adaptiveQuietEnabled: z.boolean(),
       adaptiveQuietPerAssetMs: z.number().int().min(0).max(60_000),
@@ -26,6 +41,10 @@ export const RuntimeSettingsSchema = z
       discoverySettleMs: z.number().int().min(1).max(5 * 60_000),
       discoveryTimeoutMs: z.number().int().min(10_000).max(60 * 60_000),
       inventoryHoldMs: z.number().int().min(0).max(60_000),
+      transientCounterStabilizationEnabled: z.boolean().default(true),
+      transientCounterWindowMs: z.number().int().min(5_000).max(5 * 60_000).default(15_000),
+      transientCounterMaxMs: z.number().int().min(5_000).max(30 * 60_000).default(2 * 60_000),
+      transientCounterMinimumDropPercent: z.number().min(1).max(100).default(20),
       activePollMs: z.number().int().min(1).max(60_000),
       guardedPollMs: z.number().int().min(1).max(29_999),
       standbyPollMs: z.number().int().min(1).max(60 * 60_000),
@@ -33,6 +52,7 @@ export const RuntimeSettingsSchema = z
     }),
     loadGuard: z.object({
       mode: z.enum(['off', 'observe', 'throttle']),
+      monitorInIdle: z.boolean().default(false),
       sampleIntervalMs: z.number().int().min(1_000).max(60_000),
       movingAverageWindowMs: z.number().int().min(5_000).max(30 * 60_000),
       pauseAbove: z.number().min(1).max(100).nullable(),
@@ -55,6 +75,13 @@ export const RuntimeSettingsSchema = z
         code: 'custom',
         path: ['automation', 'discoveryTimeoutMs'],
         message: 'Discovery timeout must be greater than or equal to the settle period',
+      });
+    }
+    if (settings.automation.transientCounterMaxMs < settings.automation.transientCounterWindowMs) {
+      context.addIssue({
+        code: 'custom',
+        path: ['automation', 'transientCounterMaxMs'],
+        message: 'Transient counter maximum must be greater than or equal to its observation window',
       });
     }
     if (settings.automation.adaptiveQuietMaxMs < settings.automation.uploadQuietPeriodMs) {
@@ -96,6 +123,7 @@ export function defaultRuntimeSettings(config: AppConfig): RuntimeSettings {
     automation: {
       scanOnAutopilotStart: true,
       scanOnManualStart: true,
+      processingPriority: 'configured-order',
       uploadQuietPeriodMs: config.autopilot.autoEndAfterMs,
       adaptiveQuietEnabled: false,
       adaptiveQuietPerAssetMs: 2_000,
@@ -104,6 +132,10 @@ export function defaultRuntimeSettings(config: AppConfig): RuntimeSettings {
       discoverySettleMs: config.scheduler.startSettlePeriodMs,
       discoveryTimeoutMs: 10 * 60_000,
       inventoryHoldMs: 5_000,
+      transientCounterStabilizationEnabled: true,
+      transientCounterWindowMs: 15_000,
+      transientCounterMaxMs: 2 * 60_000,
+      transientCounterMinimumDropPercent: 20,
       activePollMs: config.scheduler.pollIntervalMs,
       guardedPollMs: config.scheduler.guardedIdlePollIntervalMs,
       standbyPollMs: config.scheduler.standbyPollIntervalMs,
@@ -111,6 +143,7 @@ export function defaultRuntimeSettings(config: AppConfig): RuntimeSettings {
     },
     loadGuard: {
       mode: config.loadGuard.mode,
+      monitorInIdle: false,
       sampleIntervalMs: config.loadGuard.sampleIntervalMs,
       movingAverageWindowMs: config.loadGuard.movingAverageWindowMs,
       pauseAbove: config.loadGuard.pauseAbove,
@@ -122,6 +155,7 @@ export function defaultRuntimeSettings(config: AppConfig): RuntimeSettings {
       queue: stage.queue,
       policy: config.scheduler.managedQueues.includes(stage.queue) ? 'managed' : 'ignored',
       checkMissing: stage.startMissing,
+      stabilizeTransientCount: DEFAULT_TRANSIENT_COUNTER_QUEUES.includes(stage.queue),
     })),
   });
 }

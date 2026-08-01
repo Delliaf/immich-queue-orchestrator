@@ -29,7 +29,7 @@ Validated Immich HTTP adapters
 ## Main flow
 
 ```text
-IDLE -> PREPARING -> DISCOVERING -> INVENTORY_READY
+IDLE -> PREPARING -> DISCOVERING [-> counter stabilization] -> INVENTORY_READY
                                -> RUNNING_STAGE <-> WAITING_FOR_QUIET
                                -> COMPLETED | GUARDED_IDLE
 
@@ -41,6 +41,8 @@ upload during DISCOVERING / INVENTORY_READY / processing
 
 Arming autopilot and the manual **Scan and process** action normally enter `DISCOVERING` immediately. For each enabled queue the controller temporarily resumes it, starts or adopts its `QueueAll` missing generator, observes that generator through the queue-job API, captures the resulting pending count, and pauses a managed queue again. `INVENTORY_READY` keeps those counts visible for a configurable short hold before processing.
 
+Selected high-churn queues enter a bounded stabilization subphase after `QueueAll`: the queue stays open while its pending count is dropping rapidly, then the controller freezes the stabilized remainder. If shortest-first priority is enabled, a dependency-safe topological selection orders stages by this stabilized count.
+
 Because Immich executes `QueueAll` in its target queue, discovery cannot populate a globally paused queue without opening it temporarily. Polling minimizes the window, but existing or newly created jobs may start before the pause is restored. Active work is never cancelled.
 
 ## Queue policies
@@ -50,6 +52,8 @@ Because Immich executes `QueueAll` in its target queue, discovery cannot populat
 - `ignored`: excluded from stages and never changed.
 
 Dependencies are validated before a run. In particular, facial recognition follows face detection.
+
+Storage template and file migration are protected maintenance queues and never enter controlled stages.
 
 ## Durable mutation protocol
 
@@ -67,4 +71,4 @@ After a crash, idempotent actions are reconciled against observed state. A missi
 
 Managed queues are already paused in guarded idle. Statistics polling detects asset growth within the configured interval, which is validated below 30 seconds. An upload during any active pass pauses dispatch immediately, then restarts the full inventory after fixed or optional asset-count-adjusted quiet time.
 
-Active discovery/processing normally polls every 5 seconds, guarded idle every 10 seconds, and standby every 30 seconds. CPU sampling exists only during phases where it is displayed or can throttle dispatch. There is no separate Node.js healthcheck process.
+Active discovery/processing normally polls every 5 seconds, guarded idle every 10 seconds, and standby every 30 seconds. CPU sampling normally exists only during phases where it is displayed or can throttle dispatch; an explicit setting can keep the same sampler active in idle. There is no separate Node.js healthcheck process.

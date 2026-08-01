@@ -4,13 +4,15 @@
 
 A lightweight controller for Immich background queues on home servers with limited CPU and memory.
 
-> Status: early release `0.2.1`. API contracts were validated against Immich `v3.1.0`. Keep a current backup and test against your Immich version before relying on unattended operation.
+> Status: early release `0.3.0`. API contracts were validated against Immich `v3.1.0`. Keep a current backup and test against your Immich version before relying on unattended operation.
 
 ## What it does
 
 - pauses managed processing queues as soon as a new upload is detected;
 - immediately asks Immich to check for missing work when autopilot is armed or **Scan and process** is pressed;
 - briefly shows the discovered per-queue inventory, then processes one queue at a time;
+- optionally prioritizes the smallest stabilized backlog while preserving pipeline dependencies;
+- filters short-lived bulk counter spikes for metadata, sidecar, duplicate detection, and facial recognition;
 - interrupts discovery or processing when another upload starts, waits for quiet, and scans again;
 - supports `managed`, `always running`, and `ignored` policies for every queue;
 - optionally adapts the upload quiet period to the number of new assets and runs periodic missing checks;
@@ -108,7 +110,11 @@ The default queue order is:
 8. OCR
 9. Video conversion
 
-Every queue is `managed` and has **Check missing** enabled by default. Facial recognition remains after face detection. The order, policy, missing check, quiet periods, polling, discovery timeout, optional adaptive delay, optional periodic discovery, and CPU guard can all be changed in the panel. Periodic discovery and adaptive quiet are disabled by default.
+Every queue is `managed` and has **Check missing** enabled by default. Facial recognition remains after face detection. Processing uses the configured order by default; **smallest stabilized backlog first** can finish short queues earlier without violating dependencies.
+
+Metadata extraction, sidecar, duplicate detection, and facial recognition have transient-counter stabilization enabled by default. A rapidly falling initial count is observed in 15-second windows for up to two minutes, and both the initial and stabilized values are shown. The queue policy, missing check, stabilization, quiet periods, polling, discovery timeout, optional adaptive delay, optional periodic discovery, priority strategy, and CPU guard can all be changed in the panel. Periodic discovery, adaptive quiet, and idle CPU display are disabled by default.
+
+Storage Template Migration and the system Migration queue are never part of automatic control. Immich runs storage migration as a separate long serial operation; use the Immich administration panel deliberately if it is ever required.
 
 When autopilot is turned off, the panel asks what to do every time. The default choice keeps managed queues paused; the alternative restores the queue states captured when control began.
 
