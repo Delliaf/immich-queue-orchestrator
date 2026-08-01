@@ -38,32 +38,15 @@ Add this service under the existing `services:` section:
   immich-queue-orchestrator:
     container_name: immich_queue_orchestrator
     image: ghcr.io/delliaf/immich-queue-orchestrator:latest
-    environment:
-      IMMICH_URL: http://immich-server:2283
-      IMMICH_API_KEY: ${IMMICH_QUEUE_ORCHESTRATOR_API_KEY}
-      # Optional: leave empty to disable panel password authentication.
-      ORCHESTRATOR_ADMIN_PASSWORD: ${IMMICH_QUEUE_ORCHESTRATOR_ADMIN_PASSWORD:-}
-      UPLOAD_QUIET_PERIOD: "30m"
-      POLL_INTERVAL: "5"
-      GUARDED_IDLE_POLL_INTERVAL: "10"
-      ALLOW_LEGACY_START: "false"
-      NODE_OPTIONS: --max-old-space-size=64
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
     volumes:
       - immich_queue_orchestrator_data:/data
-    ports:
-      - "${IMMICH_QUEUE_ORCHESTRATOR_BIND_IP:-127.0.0.1}:8080:8080"
     depends_on:
-      immich-server:
-        condition: service_healthy
+      - immich-server
     restart: unless-stopped
-    init: true
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    tmpfs:
-      - /tmp:size=16m,noexec,nosuid,nodev
-    mem_limit: 192m
-    cpus: 0.25
 ```
 
 Add this entry to the existing top-level `volumes:` section:
@@ -73,19 +56,12 @@ volumes:
   immich_queue_orchestrator_data:
 ```
 
-Copy the safe environment template and fill in the values:
-
-```bash
-cp .env.example .env
-chmod 600 .env
-```
+Add two values to the existing Immich `.env` file:
 
 ```dotenv
-IMMICH_QUEUE_ORCHESTRATOR_API_KEY=a_dedicated_Immich_API_key
+IMMICH_API_KEY=a_dedicated_Immich_API_key
 # Optional. Leave empty if a password is unnecessary on your trusted home network.
-IMMICH_QUEUE_ORCHESTRATOR_ADMIN_PASSWORD=
-# Use the server's ZeroTier IP for ZeroTier-only panel access.
-IMMICH_QUEUE_ORCHESTRATOR_BIND_IP=127.0.0.1
+ORCHESTRATOR_ADMIN_PASSWORD=
 ```
 
 The default `server.authentication: auto` mode behaves as follows:
@@ -94,11 +70,11 @@ The default `server.authentication: auto` mode behaves as follows:
 - any non-empty value makes the panel request that password;
 - there are no forced length, digit, or special-character requirements.
 
-The API key and the optional panel password are read from `.env`. The real `.env` is excluded from Git and the Docker build context; only an empty `.env.example` is committed. The panel password is a normal password for this panel, not an API token or an Immich key. When authentication is disabled, the panel displays a prominent warning. Do not expose that mode to the internet.
+The built-in image configuration already contains the Immich service URL, upload timing, sequential processing, and low-memory Node.js settings. The API key and the optional panel password are read directly from the same `.env` that Immich already uses. The real `.env` is excluded from Git and the Docker build context; only an empty `.env.example` is committed. The panel password is a normal password for this panel, not an API token or an Immich key. When authentication is disabled, the panel displays a prominent warning. Do not expose that mode to the internet.
 
-Then run `docker compose up -d immich-queue-orchestrator`, open the configured address on port `8080`, enter the panel password if configured, and click **Arm autopilot** once. In armed idle, managed queues are already paused. Upload activity is normally detected in about 10 seconds and the configured interval must remain below 30 seconds. The armed state is stored in the named volume and survives restarts.
+Then run `docker compose up -d immich-queue-orchestrator`, open `http://<server-ip>:8080`, enter the panel password if configured, and click **Arm autopilot** once. In armed idle, managed queues are already paused. Upload activity is normally detected in about 10 seconds and the configured interval must remain below 30 seconds. The armed state is stored in the named volume and survives restarts.
 
-For ZeroTier-only access, set `IMMICH_QUEUE_ORCHESTRATOR_BIND_IP` to the ZeroTier address assigned to the Immich server, recreate the container, and open `http://<zerotier-ip>:8080`. Binding the specific ZeroTier address avoids exposing the panel on the server's other interfaces.
+The default `8080:8080` mapping works through both the server's LAN and ZeroTier addresses. From another device, `127.0.0.1` points to that device itself, not to the server; use `http://<server-zerotier-ip>:8080`. To expose the panel only through ZeroTier, change the port mapping to `<server-zerotier-ip>:8080:8080`.
 
 A ready-to-merge service definition is available in [`compose.simple.yml`](compose.simple.yml).
 

@@ -11,7 +11,8 @@ FROM node:24-bookworm-slim AS runtime
 
 ENV NODE_ENV=production \
     CONFIG_FILE=/app/orchestrator.docker.yml \
-    DATA_DIR=/data
+    DATA_DIR=/data \
+    NODE_OPTIONS=--max-old-space-size=64
 
 WORKDIR /app
 COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
