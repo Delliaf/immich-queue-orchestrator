@@ -1,4 +1,6 @@
-# Архитектура
+# Architecture
+
+[Русская версия](ru/architecture.md)
 
 ```text
 Web panel / HTTP actions
@@ -16,15 +18,15 @@ state.json       journal.jsonl
 Validated Immich HTTP adapters
 ```
 
-## Границы
+## Boundaries
 
-- Только публичный Immich HTTP API.
-- Нет Redis/PostgreSQL writes.
-- Нет Docker socket, container restart или job deletion.
-- Не более одной managed queue unpaused во время processing pass.
-- Неизвестные queues остаются unmanaged и отображаются в status.
+- Public Immich HTTP API only.
+- No Redis or PostgreSQL writes.
+- No Docker socket, container restarts, or job deletion.
+- At most one managed queue is unpaused during a processing pass.
+- Unknown queues remain unmanaged and are shown in status output.
 
-## Основные состояния
+## Main states
 
 ```text
 IDLE -> PREPARING
@@ -32,38 +34,38 @@ IDLE -> PREPARING
      -> RUNNING_STAGE <-> WAITING_FOR_QUIET
      -> COMPLETED | GUARDED_IDLE
 
-Любой управляемый проход может остановиться в:
+Any managed pass can stop in:
 PAUSED_BY_OPERATOR | AMBIGUOUS_START | DEGRADED | RELEASING
 ```
 
 ## Durable mutation protocol
 
-Pause/resume:
+Pause and resume operations follow this sequence:
 
 ```text
-PREPARED (fsync) -> API call -> read response verification -> VERIFIED -> COMMITTED
+PREPARED (fsync) -> API call -> read-response verification -> VERIFIED -> COMMITTED
 ```
 
-После crash idempotent action reconciles по observed state. Если state совпадает с `before`, действие повторяется; если с `desired`, оно коммитится; третье состояние считается external override.
+After a crash, an idempotent action is reconciled against observed state. If state matches `before`, the action is retried; if it matches `desired`, the action is committed. A third state is treated as an external override.
 
-Legacy start не является idempotent. После неясного сетевого результата контроллер не делает retry. Он ищет QueueAll evidence с timestamp не старше prepared action; при недостатке доказательств переходит в `AMBIGUOUS_START`.
+A legacy start is not idempotent. After an unclear network result, the controller does not retry. It searches for QueueAll evidence with a timestamp no older than the prepared action and enters `AMBIGUOUS_START` when the evidence is insufficient.
 
 ## State storage
 
-- `state.json`: temp write, file fsync, atomic rename, directory fsync где поддерживается.
-- `journal.jsonl`: append и fsync на каждую фазу mutation.
-- Corrupt state не перезаписывается и переводит сервис в read-only.
-- Все действия сериализуются внутри процесса.
-- Неизменившийся tick не переписывает `state.json`; CPU hysteresis сохраняется только при изменении таймера или throttled state.
+- `state.json`: temporary write, file fsync, atomic rename, and directory fsync where supported.
+- `journal.jsonl`: append and fsync for every mutation phase.
+- Corrupt state is never overwritten; the service switches to read-only mode.
+- All actions are serialized inside the process.
+- An unchanged tick does not rewrite `state.json`; CPU hysteresis is persisted only when a timer or throttled state changes.
 
 ## Upload priority
 
-Armed autopilot держит queues paused ещё до первого файла. Поэтому отсутствует гонка «успеть поставить паузу после появления первого job». Если upload появляется во время processing, controller pauses dispatch, ждёт active job и возвращается к capture quiet timer.
+Armed autopilot keeps queues paused before the first file arrives. This removes the race to pause processing after the first job appears. If uploading starts during processing, the controller pauses dispatch, waits for the active job, and returns to the capture quiet timer.
 
 ## Idle resource policy
 
-- Active processing polls Immich каждые 5 секунд.
-- `GUARDED_IDLE` polls каждые 10 секунд, что оставляет детекцию загрузки ниже 30 секунд.
-- Standby без активного run polls каждые 30 секунд.
-- CPU sampling существует только в processing phases.
-- Docker image не запускает отдельный Node.js healthcheck; `/healthz` и `/readyz` остаются доступны внешнему мониторингу.
+- Active processing polls Immich every 5 seconds.
+- `GUARDED_IDLE` polls every 10 seconds, keeping upload detection below 30 seconds.
+- Standby without an active run polls every 30 seconds.
+- CPU sampling exists only during processing phases.
+- The Docker image does not run a separate Node.js healthcheck process; `/healthz` and `/readyz` remain available to external monitoring.

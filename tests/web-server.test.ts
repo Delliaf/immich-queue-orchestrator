@@ -15,6 +15,18 @@ describe('web server security', () => {
     expect(() => new Script(script!)).not.toThrow();
   });
 
+  it('uses English by default and keeps the translation catalog complete', () => {
+    expect(UI_HTML).toContain('<html lang="en">');
+    expect(UI_HTML).toContain('Arm autopilot');
+
+    const script = /<script>([\s\S]+)<\/script>/.exec(UI_HTML)?.[1];
+    const catalogSource = /const messages = (\{[\s\S]*?\n {4}\});\n {4}let language/u.exec(script!)?.[1];
+    expect(catalogSource).toBeTruthy();
+
+    const catalogs = new Script(`(${catalogSource})`).runInNewContext() as Record<string, Record<string, string>>;
+    expect(Object.keys(catalogs.ru!).sort()).toEqual(Object.keys(catalogs.en!).sort());
+  });
+
   it('does not expose status without the panel password', async () => {
     const server = createServer();
     const response = await server.inject({ method: 'GET', url: '/api/status' });

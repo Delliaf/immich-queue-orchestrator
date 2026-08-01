@@ -1,28 +1,30 @@
-# Совместимость с Immich
+# Immich compatibility
 
-Проверенная база: Immich `v3.1.0` и source snapshot `483b375c26c91e9ad3d42666fff58b3fbda1164a`.
+[Русская версия](ru/compatibility.md)
 
-Используемые endpoints:
+Validated baseline: Immich `v3.1.0`, source snapshot `483b375c26c91e9ad3d42666fff58b3fbda1164a`.
 
-| Endpoint | Назначение | Статус Immich |
+Used endpoints:
+
+| Endpoint | Purpose | Immich status |
 |---|---|---|
-| `GET /api/server/version` | version gate | public/stable |
-| `GET /api/server/features` | feature-aware pipeline | public |
-| `GET /api/server/statistics` | upload activity | admin/stable |
-| `GET /api/queues` | queue states/counters | alpha |
-| `PUT /api/queues/{name}` | pause/resume | alpha |
-| `GET /api/queues/{name}/jobs` | recovery evidence | alpha, ограниченная выборка |
-| `PUT /api/jobs/{name}` | optional missing repair | deprecated с v2.4.0 |
+| `GET /api/server/version` | Version gate | Public/stable |
+| `GET /api/server/features` | Feature-aware pipeline | Public |
+| `GET /api/server/statistics` | Upload activity | Admin/stable |
+| `GET /api/queues` | Queue states and counters | Alpha |
+| `PUT /api/queues/{name}` | Pause/resume | Alpha |
+| `GET /api/queues/{name}/jobs` | Recovery evidence | Alpha, limited result set |
+| `PUT /api/jobs/{name}` | Optional missing repair | Deprecated since v2.4.0 |
 
-Runtime ответы проверяются Zod schemas. Неизвестная queue не включается в managed allowlist. Неизвестная major-версия при strict mode блокирует control.
+Runtime responses are validated with Zod schemas. An unknown queue is never added to the managed allowlist. In strict mode, an unknown major version blocks control mutations.
 
-## Ограничения counters
+## Counter limitations
 
-- `completed` и `failed` retention-зависимы.
-- Job inspection ограничен приблизительно первой тысячей элементов.
-- `isPaused` — глобальное состояние queue; `statistics.paused` — количество jobs в paused list.
-- `backgroundTask` нельзя ставить на паузу через Immich.
+- `completed` and `failed` depend on retention policy.
+- Job inspection is limited to approximately the first thousand entries.
+- `isPaused` is the queue's global state; `statistics.paused` is the number of jobs in the paused list.
+- Immich does not allow pausing `backgroundTask`.
 
-## Почему missing выполняется после drain
+## Why missing repair runs after drain
 
-Legacy endpoint проверяет только active jobs. Большинство QueueAll jobs не имеют deduplication key. Start поверх waiting/paused backlog способен добавить повторную массовую работу. Поэтому controller сначала ждёт полный ноль pending states и только потом допускает один repair-pass.
+The legacy endpoint checks only active jobs. Most QueueAll jobs have no deduplication key. Starting it over a waiting or paused backlog can add duplicate bulk work. The controller therefore waits for every pending state to reach zero before allowing one repair pass.

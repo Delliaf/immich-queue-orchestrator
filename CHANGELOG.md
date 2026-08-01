@@ -1,6 +1,12 @@
 # Changelog
 
-## 0.1.0 - Unreleased
+## 0.1.1 - 2026-08-01
+
+- Reorganized the documentation around a complete English reference with companion translations.
+- Made the embedded panel English-first with a persistent RU/EN switch.
+- Added a development-only translation revision check; it is not included in runtime polling or healthchecks.
+
+## 0.1.0 - 2026-08-01
 
 - Safe observe-first startup.
 - Direct validated Immich queue API client.

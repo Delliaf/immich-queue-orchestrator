@@ -1,38 +1,38 @@
 # Immich Queue Orchestrator
 
-[English summary](README.en.md)
+[Русская версия](README.ru.md)
 
-Безопасный внешний контроллер фоновых очередей Immich для домашних серверов с ограниченными CPU и RAM.
+A safe, independent controller for Immich background queues on home servers with limited CPU and memory.
 
-> Статус: pre-release `0.1.0`. Контракты проверены по Immich `v3.1.0`. До первого запуска на реальной библиотеке используйте `dryRun: true` и сделайте резервную копию.
+> Status: early release `0.1.1`. API contracts were validated against Immich `v3.1.0`. Start with `dryRun: true` on a real library and keep a backup.
 
-## Что он делает
+## What it does
 
-- оставляет тяжёлые processing queues на паузе во время загрузки файлов;
-- обнаруживает новые assets и ждёт настраиваемый период тишины, по умолчанию 30 минут;
-- запускает обработку строго по одной очереди;
-- сначала дренирует накопившиеся jobs и только потом, опционально, делает один missing repair-pass;
-- показывает очереди, текущий этап и CPU в собственной web-панели;
-- восстанавливается после restart через атомарный state и append-only action journal;
-- при неоднозначном legacy start останавливается и спрашивает решение оператора;
-- никогда не пишет напрямую в Redis или PostgreSQL и не требует Docker socket.
+- keeps heavy processing queues paused while files are being uploaded;
+- detects new assets and waits for a configurable quiet period, 30 minutes by default;
+- processes exactly one managed queue at a time;
+- drains already queued jobs first and can then run one optional missing-repair pass;
+- shows queues, the current phase, and CPU load in an embedded web panel;
+- recovers after restarts through atomic state and an append-only action journal;
+- stops for an operator decision when a legacy start has an ambiguous result;
+- never writes directly to Redis or PostgreSQL and does not require the Docker socket.
 
-## Сценарий автопилота
+## Autopilot flow
 
 ```text
 GUARDED_IDLE (managed queues paused)
-  -> появились новые фото/видео
+  -> new photos or videos arrive
   -> CAPTURING_UPLOADS
-  -> 30 минут без новых поступлений
+  -> 30 minutes without new uploads
   -> metadata -> storage -> thumbnails -> ML/OCR/video
   -> GUARDED_IDLE
 ```
 
-Если загрузка возобновилась во время обработки, текущий active job заканчивается, выдача следующей работы приостанавливается и снова начинается upload quiet timer.
+If uploading resumes during processing, the current active job is allowed to finish, dispatch of the next job is paused, and the upload quiet timer starts again.
 
-## Простой запуск в существующем Docker Compose Immich
+## Simple setup in an existing Immich Docker Compose file
 
-После публикации образа достаточно добавить один сервис под существующий `services:`:
+Add this service under the existing `services:` section:
 
 ```yaml
   immich-queue-orchestrator:
@@ -41,7 +41,7 @@ GUARDED_IDLE (managed queues paused)
     environment:
       IMMICH_URL: http://immich-server:2283
       IMMICH_API_KEY_FILE: /run/secrets/immich_api_key
-      # Необязательно: пустое значение отключает вход по паролю.
+      # Optional: leave empty to disable panel password authentication.
       ORCHESTRATOR_ADMIN_PASSWORD: ${IMMICH_QUEUE_ORCHESTRATOR_ADMIN_PASSWORD:-}
       UPLOAD_QUIET_PERIOD: "30m"
       POLL_INTERVAL: "5"
@@ -68,7 +68,7 @@ GUARDED_IDLE (managed queues paused)
     cpus: 0.25
 ```
 
-В существующие верхнеуровневые разделы `volumes:` и `secrets:` добавьте:
+Add these entries to the existing top-level `volumes:` and `secrets:` sections:
 
 ```yaml
 volumes:
@@ -79,7 +79,7 @@ secrets:
     environment: IMMICH_QUEUE_ORCHESTRATOR_API_KEY
 ```
 
-Скопируйте безопасный шаблон и заполните значения:
+Copy the safe environment template and fill in the values:
 
 ```bash
 cp .env.example .env
@@ -87,80 +87,80 @@ chmod 600 .env
 ```
 
 ```dotenv
-IMMICH_QUEUE_ORCHESTRATOR_API_KEY=отдельный_API_ключ_Immich
-# Необязательно. Оставьте пустым, если пароль в доверенной домашней сети не нужен.
+IMMICH_QUEUE_ORCHESTRATOR_API_KEY=a_dedicated_Immich_API_key
+# Optional. Leave empty if a password is unnecessary on your trusted home network.
 IMMICH_QUEUE_ORCHESTRATOR_ADMIN_PASSWORD=
 ```
 
-По умолчанию используется `server.authentication: auto`:
+The default `server.authentication: auto` mode behaves as follows:
 
-- переменная отсутствует или пуста — панель открывается без пароля;
-- указано любое непустое значение — панель запрашивает этот пароль;
-- требований к длине, цифрам или специальным символам нет.
+- an omitted or empty variable leaves the panel open without a password;
+- any non-empty value makes the panel request that password;
+- there are no forced length, digit, or special-character requirements.
 
-Это обычный пароль нашей панели, не API token и не ключ Immich. Настоящий `.env` исключён из Git и Docker build context; в репозитории остаётся только пустой `.env.example`. Если пароль не используется, панель показывает заметное предупреждение. Не публикуйте такой режим в интернет.
+This is a normal password for the orchestrator panel, not an API token or an Immich key. The real `.env` is excluded from Git and the Docker build context; only an empty `.env.example` is committed. When authentication is disabled, the panel displays a prominent warning. Do not expose that mode to the internet.
 
-Затем выполните `docker compose up -d immich-queue-orchestrator`, откройте `http://127.0.0.1:8080`, при необходимости введите настроенный пароль панели и один раз нажмите «Включить автопилот». В armed idle управляемые очереди уже стоят на паузе, а появление загрузки обнаруживается обычно за 10 секунд и гарантированно настраивается ниже 30 секунд. Armed state хранится в named volume и переживает перезапуски.
+Then run `docker compose up -d immich-queue-orchestrator`, open `http://127.0.0.1:8080`, enter the panel password if configured, and click **Arm autopilot** once. In armed idle, managed queues are already paused. Upload activity is normally detected in about 10 seconds and the configured interval must remain below 30 seconds. The armed state is stored in the named volume and survives restarts.
 
-Пока GHCR-образ ещё не опубликован, используйте `build: .` вместо `image:` из локальной копии проекта. Готовый фрагмент находится в [`compose.simple.yml`](compose.simple.yml).
+A ready-to-merge service definition is available in [`compose.simple.yml`](compose.simple.yml).
 
-`MAX_CONCURRENT_JOBS` этому сервису не нужен: он держит открытой только одну managed queue. Количество одновременно исполняемых jobs внутри этой очереди задаёт сам Immich.
+This service does not need `MAX_CONCURRENT_JOBS`: it keeps only one managed queue open. Immich itself controls the number of jobs executing inside that queue.
 
-`ALLOW_LEGACY_START=false` сначала обрабатывает только уже созданные jobs. После проверки на своей версии Immich его можно переключить в `true`, чтобы включить последовательный «проверить отсутствующие» repair-pass.
+With `ALLOW_LEGACY_START=false`, only jobs already created by Immich are processed. After validating the orchestrator against your Immich version, set it to `true` to enable the sequential **missing jobs** repair pass.
 
-## Расширенный запуск с отдельным YAML
+## Advanced setup with a separate YAML file
 
-1. Создайте отдельный API key в учётной записи администратора Immich. Для queued-only нужны только `queue.read`, `queue.update`, `server.statistics`. Для missing repair дополнительно нужны `job.create` и `queueJob.read` (последний используется для безопасного восстановления после неоднозначного start).
-2. Скопируйте конфигурацию:
+1. Create a dedicated API key in an Immich administrator account. Queued-only mode needs `queue.read`, `queue.update`, and `server.statistics`. Missing repair additionally needs `job.create` and `queueJob.read`; the latter supports safe recovery from an ambiguous start.
+2. Copy the configuration:
 
    ```bash
    cp orchestrator.example.yml orchestrator.yml
    mkdir -p secrets orchestrator-data
    printf '%s' 'IMMICH_API_KEY' > secrets/immich_api_key.txt
-   printf '%s' 'ВАШ_ПАРОЛЬ_ПАНЕЛИ' > secrets/orchestrator_admin_password.txt
+   printf '%s' 'YOUR_PANEL_PASSWORD' > secrets/orchestrator_admin_password.txt
    ```
 
-3. Подключите сервис к той же Docker network, где доступен `immich-server`, и запустите:
+3. Attach the service to the Docker network where `immich-server` is reachable, then start it:
 
    ```bash
    docker compose -f compose.example.yml up -d --build
    ```
 
-4. Откройте панель через SSH tunnel или на самом сервере: `http://127.0.0.1:8080`. Введите пароль панели.
-5. Первый запуск оставьте с `dryRun: true`: проверьте версию, queues и effective config.
-6. Для управления установите `dryRun: false`, пересоздайте контейнер и нажмите «Включить автопилот».
+4. Open the panel locally or through an SSH tunnel at `http://127.0.0.1:8080` and enter the panel password.
+5. Keep `dryRun: true` for the first start and verify the Immich version, queues, and effective configuration.
+6. Set `dryRun: false`, recreate the container, and click **Arm autopilot** to enable control.
 
-Сам факт установки или restart контейнера не снимает существующие паузы. Новый install ждёт явной команды. Автоматически продолжается только собственный persisted run.
+Installing or restarting the container does not resume queues by itself. A new installation waits for an explicit command. Only an unfinished run previously owned and persisted by the orchestrator resumes automatically.
 
-## Режимы
+## Modes
 
-- `observe`: только состояние и CPU;
-- `manual-session`: одна команда «Обработать накопившееся», затем автоматический проход;
-- `capture-assisted`: ручные «Начать приём» и «Загрузка закончена»;
-- `autopilot`: постоянный guarded idle, автоматический детектор загрузки и processing pass;
-- `scheduled`: зарезервирован конфигурацией; scheduling loop ещё не включён в `0.1.0`.
+- `observe`: status and CPU monitoring only;
+- `manual-session`: one **Process backlog** command followed by an automatic pass;
+- `capture-assisted`: manual **Start capture** and **Uploads finished** commands;
+- `autopilot`: permanent guarded idle, automatic upload detection, and processing passes;
+- `scheduled`: reserved by the configuration schema; the scheduling loop is not enabled in `0.1.0`.
 
-## Безопасность missing repair
+## Missing-repair safety
 
-`allowLegacyStart` по умолчанию выключен. Без него контроллер обрабатывает только jobs, уже созданные Immich.
+`allowLegacyStart` is disabled by default. Without it, the controller processes only jobs that Immich has already created.
 
-При включении repair-pass:
+When the repair pass is enabled:
 
-1. очередь сначала должна стать полностью пустой по `active + waiting + paused + delayed`;
-2. выполняется один `force=false` start;
-3. сетевой сбой около start считается неоднозначным;
-4. автоматического retry нет — решение принимается в панели.
+1. the queue must first reach zero `active + waiting + paused + delayed` jobs;
+2. one `force=false` start is issued;
+3. a network failure around that start is treated as ambiguous;
+4. the start is never retried automatically—the operator decides in the panel.
 
-## Документация
+## Documentation
 
-- [Конфигурация](docs/configuration.md)
-- [Архитектура и state machine](docs/architecture.md)
-- [Восстановление и аварийные действия](docs/recovery.md)
-- [Совместимость с Immich](docs/compatibility.md)
-- [Безопасность](SECURITY.md)
-- [Разработка](CONTRIBUTING.md)
-- [Проверенный проектный план](VALIDATED_PROJECT_PLAN_RU.md)
+- [Configuration](docs/configuration.md)
+- [Architecture and state machine](docs/architecture.md)
+- [Recovery and incident handling](docs/recovery.md)
+- [Immich compatibility](docs/compatibility.md)
+- [Current project plan](docs/project-plan.md)
+- [Security policy](SECURITY.md)
+- [Contributing](CONTRIBUTING.md)
 
-## Лицензия
+## License
 
-Apache License 2.0. Immich — отдельный проект; данный репозиторий не является официальной частью Immich.
+Apache License 2.0. Immich is a separate project; this repository is not an official part of Immich.

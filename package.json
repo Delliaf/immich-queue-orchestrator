@@ -1,6 +1,6 @@
 {
   "name": "immich-queue-orchestrator",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A safe, resource-aware queue orchestrator for Immich",
   "type": "module",
   "private": true,
@@ -10,8 +10,10 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "check": "npm run lint && npm run typecheck && npm test && npm run build",
+    "check": "npm run docs:check && npm run lint && npm run typecheck && npm test && npm run build",
     "dev": "tsx watch src/main.ts",
+    "docs:check": "node scripts/check-doc-translations.mjs",
+    "docs:sync": "node scripts/check-doc-translations.mjs --write",
     "lint": "eslint .",
     "mock:immich": "node scripts/mock-immich.mjs",
     "start": "node dist/main.js",

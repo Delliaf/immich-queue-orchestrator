@@ -1,5 +1,5 @@
 export const UI_HTML = String.raw`<!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -36,6 +36,8 @@ export const UI_HTML = String.raw`<!doctype html>
     h1 span { color: var(--green); }
     .subtitle { color: var(--muted); margin: 4px 0 0; }
     .auth { display: flex; gap: 8px; align-items: center; }
+    .header-actions { display: flex; gap: 8px; align-items: center; }
+    .language { min-width: 48px; }
     input {
       background: #090d12aa; border: 1px solid var(--line); border-radius: 10px;
       color: var(--text); padding: 10px 12px; min-width: 210px;
@@ -75,46 +77,90 @@ export const UI_HTML = String.raw`<!doctype html>
     pre { white-space: pre-wrap; word-break: break-word; color: #b7c7db; margin: 0; font-size: 12px; max-height: 360px; overflow: auto; }
     .hidden { display: none; }
     @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, 1fr); } .two { grid-template-columns: 1fr; } }
-    @media (max-width: 600px) { main { width: min(100% - 20px, 1280px); padding-top: 18px; } header { align-items: flex-start; flex-direction: column; } .auth { width: 100%; } input { min-width: 0; flex: 1; } .grid { grid-template-columns: 1fr; } table { font-size: 12px; } th, td { padding: 8px 4px; } }
+    @media (max-width: 600px) { main { width: min(100% - 20px, 1280px); padding-top: 18px; } header { align-items: flex-start; flex-direction: column; } .header-actions, .auth { width: 100%; } input { min-width: 0; flex: 1; } .grid { grid-template-columns: 1fr; } table { font-size: 12px; } th, td { padding: 8px 4px; } }
   </style>
 </head>
 <body>
   <main>
     <header>
-      <div><h1>Immich Queue <span>Orchestrator</span></h1><p class="subtitle">Загрузка отдельно. Обработка последовательно. Состояние восстанавливается.</p></div>
-      <div id="auth-controls" class="auth"><input id="password" type="password" autocomplete="current-password" placeholder="Пароль панели"><button id="save-password">Подключить</button></div>
+      <div><h1>Immich Queue <span>Orchestrator</span></h1><p class="subtitle" data-i18n="subtitle">Uploads first. Processing in sequence. State survives restarts.</p></div>
+      <div class="header-actions"><button id="language-toggle" class="language" type="button" aria-label="Switch language">RU</button><div id="auth-controls" class="auth"><input id="password" type="password" autocomplete="current-password" placeholder="Panel password" data-i18n-placeholder="panelPassword"><button id="save-password" data-i18n="connect">Connect</button></div></div>
     </header>
-    <div id="banner" class="banner">Подключение к контроллеру…</div>
+    <div id="banner" class="banner" data-i18n="connecting">Connecting to the controller…</div>
     <div class="grid">
       <div class="card"><div class="label">Immich API</div><div id="api" class="value">—</div><div id="version" class="detail">—</div></div>
-      <div class="card"><div class="label">Состояние</div><div id="phase" class="value">—</div><div id="mode" class="detail">—</div></div>
-      <div class="card"><div class="label">CPU, среднее</div><div id="cpu" class="value">—</div><div id="cpu-detail" class="detail">—</div></div>
-      <div class="card"><div class="label">Медиатека</div><div id="assets" class="value">—</div><div id="usage" class="detail">—</div></div>
+      <div class="card"><div class="label" data-i18n="state">State</div><div id="phase" class="value">—</div><div id="mode" class="detail">—</div></div>
+      <div class="card"><div class="label" data-i18n="cpuAverage">CPU average</div><div id="cpu" class="value">—</div><div id="cpu-detail" class="detail">—</div></div>
+      <div class="card"><div class="label" data-i18n="library">Library</div><div id="assets" class="value">—</div><div id="usage" class="detail">—</div></div>
     </div>
     <section>
-      <h2>Управление</h2>
+      <h2 data-i18n="controls">Controls</h2>
       <div class="actions">
-        <button class="primary" data-action="arm-autopilot">Включить автопилот</button>
-        <button data-action="capture-begin">Начать приём файлов</button>
-        <button data-action="capture-end">Загрузка закончена</button>
-        <button data-action="process">Обработать накопившееся</button>
-        <button class="warn" data-action="pause">Приостановить контроллер</button>
-        <button data-action="resume">Продолжить контроллер</button>
-        <button class="danger" data-action="release">Освободить управление</button>
+        <button class="primary" data-action="arm-autopilot" data-i18n="armAutopilot">Arm autopilot</button>
+        <button data-action="capture-begin" data-i18n="beginCapture">Begin upload capture</button>
+        <button data-action="capture-end" data-i18n="uploadsFinished">Uploads finished</button>
+        <button data-action="process" data-i18n="processBacklog">Process backlog</button>
+        <button class="warn" data-action="pause" data-i18n="pauseController">Pause controller</button>
+        <button data-action="resume" data-i18n="resumeController">Resume controller</button>
+        <button class="danger" data-action="release" data-i18n="releaseControl">Release control</button>
       </div>
       <div id="ambiguous-actions" class="actions hidden" style="margin-top:12px">
-        <button data-decision="assume-sent">Считать start выполненным</button>
-        <button class="warn" data-decision="retry-start">Повторить start вручную</button>
-        <button class="danger" data-decision="abort">Прервать и восстановить очереди</button>
+        <button data-decision="assume-sent" data-i18n="assumeStartSent">Assume start was sent</button>
+        <button class="warn" data-decision="retry-start" data-i18n="retryStart">Retry start manually</button>
+        <button class="danger" data-decision="abort" data-i18n="abortRestore">Abort and restore queues</button>
       </div>
     </section>
     <div class="two">
-      <section><h2>Очереди Immich</h2><div style="overflow:auto"><table><thead><tr><th>Очередь</th><th>Состояние</th><th>Active</th><th>Waiting</th><th>Paused</th><th>Delayed</th><th>Failed</th></tr></thead><tbody id="queues"></tbody></table></div></section>
-      <section><h2>Текущий этап</h2><div id="stage" class="detail">Нет активного прохода</div></section>
+      <section><h2 data-i18n="queues">Immich queues</h2><div style="overflow:auto"><table><thead><tr><th data-i18n="queue">Queue</th><th data-i18n="status">Status</th><th>Active</th><th>Waiting</th><th>Paused</th><th>Delayed</th><th>Failed</th></tr></thead><tbody id="queues"></tbody></table></div></section>
+      <section><h2 data-i18n="currentStage">Current stage</h2><div id="stage" class="detail" data-i18n="noActiveStage">No active stage</div></section>
     </div>
-    <section><h2>Эффективная конфигурация</h2><pre id="config">—</pre></section>
+    <section><h2 data-i18n="effectiveConfiguration">Effective configuration</h2><pre id="config">—</pre></section>
   </main>
   <script>
+    const messages = {
+      en: {
+        subtitle: 'Uploads first. Processing in sequence. State survives restarts.', panelPassword: 'Panel password', connect: 'Connect', connecting: 'Connecting to the controller…',
+        state: 'State', cpuAverage: 'CPU average', library: 'Library', controls: 'Controls', armAutopilot: 'Arm autopilot', beginCapture: 'Begin upload capture',
+        uploadsFinished: 'Uploads finished', processBacklog: 'Process backlog', pauseController: 'Pause controller', resumeController: 'Resume controller', releaseControl: 'Release control',
+        assumeStartSent: 'Assume start was sent', retryStart: 'Retry start manually', abortRestore: 'Abort and restore queues', queues: 'Immich queues', queue: 'Queue', status: 'Status',
+        currentStage: 'Current stage', noActiveStage: 'No active stage', effectiveConfiguration: 'Effective configuration', providePassword: ' — enter the panel password.',
+        readOnly: 'Read-only: enable control.enabled and disable dryRun in the configuration.', ambiguousRequired: 'Ambiguous missing-job start: an operator decision is required.',
+        trustedNetwork: 'The panel has no password. Use it only on a trusted home network.', armed: 'Autopilot is armed and persists across restarts.', ready: 'Controller ready. Automatic start without a command is disabled.',
+        connected: 'Connected', unavailable: 'Unavailable', versionUnknown: 'Version unknown', noActiveRun: 'No active run', idleCpuDisabled: 'Monitoring is disabled while idle',
+        waitingSample: 'Waiting for a sample', nowPeak: 'Now {current}% · peak {peak}%', assetCounts: '{photos} photos · {videos} videos · {usage}', paused: 'paused', running: 'running',
+        stepOf: 'Step {current} of {total}', confirmAction: 'Run “{action}”?', confirmDecision: 'Confirm the ambiguous-start decision: {decision}?', switchLanguage: 'Switch to Russian'
+      },
+      ru: {
+        subtitle: 'Загрузка отдельно. Обработка последовательно. Состояние восстанавливается.', panelPassword: 'Пароль панели', connect: 'Подключить', connecting: 'Подключение к контроллеру…',
+        state: 'Состояние', cpuAverage: 'CPU, среднее', library: 'Медиатека', controls: 'Управление', armAutopilot: 'Включить автопилот', beginCapture: 'Начать приём файлов',
+        uploadsFinished: 'Загрузка закончена', processBacklog: 'Обработать накопившееся', pauseController: 'Приостановить контроллер', resumeController: 'Продолжить контроллер', releaseControl: 'Освободить управление',
+        assumeStartSent: 'Считать start выполненным', retryStart: 'Повторить start вручную', abortRestore: 'Прервать и восстановить очереди', queues: 'Очереди Immich', queue: 'Очередь', status: 'Состояние',
+        currentStage: 'Текущий этап', noActiveStage: 'Нет активного этапа', effectiveConfiguration: 'Эффективная конфигурация', providePassword: ' — укажите пароль панели.',
+        readOnly: 'Read-only: включите control.enabled и отключите dryRun в конфигурации.', ambiguousRequired: 'Неоднозначный start missing: требуется решение оператора.',
+        trustedNetwork: 'Панель работает без пароля. Используйте только в доверенной домашней сети.', armed: 'Автопилот вооружён и сохраняется после перезапуска.', ready: 'Контроллер готов. Самостоятельный запуск без команды запрещён.',
+        connected: 'Подключён', unavailable: 'Недоступен', versionUnknown: 'Версия неизвестна', noActiveRun: 'Нет активного run', idleCpuDisabled: 'В простое мониторинг отключён',
+        waitingSample: 'Ожидание выборки', nowPeak: 'Сейчас {current}% · пик {peak}%', assetCounts: '{photos} фото · {videos} видео · {usage}', paused: 'пауза', running: 'работает',
+        stepOf: 'Шаг {current} из {total}', confirmAction: 'Выполнить действие «{action}»?', confirmDecision: 'Подтвердить решение для неоднозначного start: {decision}?', switchLanguage: 'Переключить на английский'
+      }
+    };
+    let language = localStorage.getItem('orchestrator-language') === 'ru' ? 'ru' : 'en';
+    const t = (key, values = {}) => Object.entries(values).reduce((text, entry) => text.replaceAll('{' + entry[0] + '}', String(entry[1])), messages[language][key]);
+    function applyLanguage() {
+      document.documentElement.lang = language;
+      document.querySelectorAll('[data-i18n]').forEach(element => { element.textContent = t(element.dataset.i18n); });
+      document.querySelectorAll('[data-i18n-placeholder]').forEach(element => { element.placeholder = t(element.dataset.i18nPlaceholder); });
+      const toggle = document.querySelector('#language-toggle');
+      toggle.textContent = language === 'en' ? 'RU' : 'EN';
+      toggle.setAttribute('aria-label', t('switchLanguage'));
+    }
+    document.querySelector('#language-toggle').addEventListener('click', () => {
+      language = language === 'en' ? 'ru' : 'en';
+      localStorage.setItem('orchestrator-language', language);
+      applyLanguage();
+      refresh();
+    });
+    applyLanguage();
+
     const passwordInput = document.querySelector('#password');
     let authenticationFailed = false;
     passwordInput.value = sessionStorage.getItem('orchestrator-password') || '';
@@ -151,7 +197,7 @@ export const UI_HTML = String.raw`<!doctype html>
       } catch (error) {
         if (error.message.includes('password') || error.message.includes('Unauthorized')) authenticationFailed = true;
         const banner = document.querySelector('#banner');
-        banner.className = 'banner error'; banner.textContent = error.message + (error.message.includes('password') || error.message.includes('Unauthorized') ? ' — укажите пароль панели.' : '');
+        banner.className = 'banner error'; banner.textContent = error.message + (error.message.includes('password') || error.message.includes('Unauthorized') ? t('providePassword') : '');
       }
     }
     function render(status, config) {
@@ -161,31 +207,31 @@ export const UI_HTML = String.raw`<!doctype html>
       if (status.fatalError || status.lastPollError) {
         banner.className = 'banner error'; banner.textContent = status.fatalError || status.lastPollError;
       } else if (!status.control.enabled || status.control.dryRun) {
-        banner.className = 'banner warn'; banner.textContent = 'Read-only: включите control.enabled и отключите dryRun в конфигурации.';
+        banner.className = 'banner warn'; banner.textContent = t('readOnly');
       } else if (run?.phase === 'AMBIGUOUS_START') {
-        banner.className = 'banner error'; banner.textContent = run.lastError || 'Неоднозначный start missing: требуется решение оператора.';
+        banner.className = 'banner error'; banner.textContent = run.lastError || t('ambiguousRequired');
       } else if (status.control.authentication === 'none') {
-        banner.className = 'banner warn'; banner.textContent = 'Панель работает без пароля. Используйте только в доверенной домашней сети.';
+        banner.className = 'banner warn'; banner.textContent = t('trustedNetwork');
       } else {
-        banner.className = 'banner'; banner.textContent = status.state?.autopilotArmed ? 'Автопилот вооружён и сохраняется после перезапуска.' : 'Контроллер готов. Самостоятельный запуск без команды запрещён.';
+        banner.className = 'banner'; banner.textContent = status.state?.autopilotArmed ? t('armed') : t('ready');
       }
-      document.querySelector('#api').textContent = status.apiConnected ? 'Подключён' : 'Недоступен';
+      document.querySelector('#api').textContent = status.apiConnected ? t('connected') : t('unavailable');
       document.querySelector('#api').className = 'value ' + (status.apiConnected ? 'ok' : 'bad');
-      document.querySelector('#version').textContent = status.version ? 'Immich ' + status.version.major + '.' + status.version.minor + '.' + status.version.patch : 'Версия неизвестна';
+      document.querySelector('#version').textContent = status.version ? 'Immich ' + status.version.major + '.' + status.version.minor + '.' + status.version.patch : t('versionUnknown');
       const phase = run?.phase || 'IDLE'; document.querySelector('#phase').textContent = phase;
       document.querySelector('#phase').className = 'value ' + phaseClass(phase);
-      document.querySelector('#mode').textContent = run ? run.mode + ' · run ' + run.id.slice(0, 8) : 'Нет активного run';
+      document.querySelector('#mode').textContent = run ? run.mode + ' · run ' + run.id.slice(0, 8) : t('noActiveRun');
       document.querySelector('#cpu').textContent = status.cpu.averagePercent == null ? '—' : status.cpu.averagePercent.toFixed(1) + '%';
       document.querySelector('#cpu-detail').textContent = !status.cpu.monitoring
-        ? 'В простое мониторинг отключён'
+        ? t('idleCpuDisabled')
         : status.cpu.currentPercent == null
-          ? 'Ожидание выборки'
-          : 'Сейчас ' + status.cpu.currentPercent.toFixed(1) + '% · пик ' + status.cpu.peakPercent.toFixed(1) + '%';
-      const stats = status.serverStatistics; document.querySelector('#assets').textContent = stats ? (stats.photos + stats.videos).toLocaleString('ru-RU') : '—';
-      document.querySelector('#usage').textContent = stats ? stats.photos + ' фото · ' + stats.videos + ' видео · ' + humanBytes(stats.usage) : '—';
-      document.querySelector('#queues').innerHTML = status.queues.map(q => '<tr><td>' + escapeHtml(q.name) + '</td><td><span class="pill ' + (q.isPaused ? 'paused">пауза' : 'open">работает') + '</span></td><td>' + q.statistics.active + '</td><td>' + q.statistics.waiting + '</td><td>' + q.statistics.paused + '</td><td>' + q.statistics.delayed + '</td><td>' + q.statistics.failed + '</td></tr>').join('');
+          ? t('waitingSample')
+          : t('nowPeak', { current: status.cpu.currentPercent.toFixed(1), peak: status.cpu.peakPercent.toFixed(1) });
+      const stats = status.serverStatistics; document.querySelector('#assets').textContent = stats ? (stats.photos + stats.videos).toLocaleString(language === 'ru' ? 'ru-RU' : 'en-US') : '—';
+      document.querySelector('#usage').textContent = stats ? t('assetCounts', { photos: stats.photos, videos: stats.videos, usage: humanBytes(stats.usage) }) : '—';
+      document.querySelector('#queues').innerHTML = status.queues.map(q => '<tr><td>' + escapeHtml(q.name) + '</td><td><span class="pill ' + (q.isPaused ? 'paused">' + t('paused') : 'open">' + t('running')) + '</span></td><td>' + q.statistics.active + '</td><td>' + q.statistics.waiting + '</td><td>' + q.statistics.paused + '</td><td>' + q.statistics.delayed + '</td><td>' + q.statistics.failed + '</td></tr>').join('');
       const stage = run?.stages?.[run.currentStageIndex];
-      document.querySelector('#stage').innerHTML = stage ? '<div class="value">' + escapeHtml(stage.id) + '</div><div>' + escapeHtml(stage.queue) + '</div><div style="margin-top:8px">' + escapeHtml(stage.status) + '</div><div>Шаг ' + (run.currentStageIndex + 1) + ' из ' + run.stages.length + '</div>' : 'Нет активного этапа';
+      document.querySelector('#stage').innerHTML = stage ? '<div class="value">' + escapeHtml(stage.id) + '</div><div>' + escapeHtml(stage.queue) + '</div><div style="margin-top:8px">' + escapeHtml(stage.status) + '</div><div>' + t('stepOf', { current: run.currentStageIndex + 1, total: run.stages.length }) + '</div>' : t('noActiveStage');
       document.querySelector('#config').textContent = JSON.stringify(config, null, 2);
       document.querySelectorAll('[data-action]').forEach(button => { button.disabled = !status.control.enabled || status.control.dryRun; });
       document.querySelector('#ambiguous-actions').classList.toggle('hidden', run?.phase !== 'AMBIGUOUS_START');
@@ -197,14 +243,14 @@ export const UI_HTML = String.raw`<!doctype html>
     };
     document.querySelectorAll('[data-action]').forEach(button => button.addEventListener('click', async () => {
       const action = button.dataset.action;
-      if (!confirm('Выполнить действие «' + button.textContent.trim() + '»?')) return;
+      if (!confirm(t('confirmAction', { action: button.textContent.trim() }))) return;
       button.disabled = true;
       try { await api(actionPaths[action], { method: 'POST', body: '{}' }); await refresh(); }
       catch (error) { alert(error.message); await refresh(); }
     }));
     document.querySelectorAll('[data-decision]').forEach(button => button.addEventListener('click', async () => {
       const decision = button.dataset.decision;
-      if (!confirm('Подтвердить решение для неоднозначного start: ' + decision + '?')) return;
+      if (!confirm(t('confirmDecision', { decision }))) return;
       try { await api('/api/actions/resolve-ambiguous', { method: 'POST', body: JSON.stringify({ decision }) }); await refresh(); }
       catch (error) { alert(error.message); await refresh(); }
     }));
