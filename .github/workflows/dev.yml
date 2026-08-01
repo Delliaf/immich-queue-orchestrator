@@ -28,6 +28,6 @@ jobs:
           context: .
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/${{ github.repository }}:dev
+          tags: ghcr.io/delliaf/immich-queue-orchestrator:dev
           cache-from: type=gha,scope=dev-amd64
           cache-to: type=gha,mode=max,scope=dev-amd64
