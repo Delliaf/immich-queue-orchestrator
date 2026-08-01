@@ -4,7 +4,7 @@
 
 An independent controller for Immich background queues on home servers with limited CPU and memory.
 
-> Status: early release `0.1.3`. API contracts were validated against Immich `v3.1.0`. Start with `dryRun: true` on a real library and keep a backup.
+> Status: early release `0.1.4`. API contracts were validated against Immich `v3.1.0`. Start with `dryRun: true` on a real library and keep a backup.
 
 ## What it does
 
@@ -59,7 +59,7 @@ volumes:
 Add two values to the existing Immich `.env` file:
 
 ```dotenv
-IMMICH_API_KEY=a_dedicated_Immich_API_key
+ORCHESTRATOR_API_KEY=a_dedicated_Immich_API_key_for_this_orchestrator
 # Optional. Leave empty if a password is unnecessary on your trusted home network.
 ORCHESTRATOR_ADMIN_PASSWORD=
 ```
@@ -70,7 +70,7 @@ The default `server.authentication: auto` mode behaves as follows:
 - any non-empty value makes the panel request that password;
 - there are no forced length, digit, or special-character requirements.
 
-The built-in image configuration already contains the Immich service URL, upload timing, sequential processing, and low-memory Node.js settings. The API key and the optional panel password are read directly from the same `.env` that Immich already uses. The real `.env` is excluded from Git and the Docker build context; only an empty `.env.example` is committed. The panel password is a normal password for this panel, not an API token or an Immich key. When authentication is disabled, the panel displays a prominent warning. Do not expose that mode to the internet.
+The built-in image configuration already contains the Immich service URL, upload timing, sequential processing, and low-memory Node.js settings. `ORCHESTRATOR_API_KEY` deliberately has an application-specific name so another service such as Immich Power Tools can use its own Immich API key in the same `.env`. The API key and the optional panel password are read directly from the same `.env` that Immich already uses. The real `.env` is excluded from Git and the Docker build context; only an empty `.env.example` is committed. The panel password is a normal password for this panel, not an API token or an Immich key. When authentication is disabled, the panel displays a prominent warning. Do not expose that mode to the internet.
 
 Then run `docker compose up -d immich-queue-orchestrator`, open `http://<server-ip>:8080`, enter the panel password if configured, and click **Arm autopilot** once. In armed idle, managed queues are already paused. Upload activity is normally detected in about 10 seconds and the configured interval must remain below 30 seconds. The armed state is stored in the named volume and survives restarts.
 
@@ -90,7 +90,7 @@ With `ALLOW_LEGACY_START=false`, only jobs already created by Immich are process
    ```bash
    cp orchestrator.example.yml orchestrator.yml
    mkdir -p secrets orchestrator-data
-   printf '%s' 'IMMICH_API_KEY' > secrets/immich_api_key.txt
+   printf '%s' 'YOUR_IMMICH_API_KEY' > secrets/immich_api_key.txt
    printf '%s' 'YOUR_PANEL_PASSWORD' > secrets/orchestrator_admin_password.txt
    ```
 

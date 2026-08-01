@@ -16,7 +16,7 @@ services:
     environment:
       CONFIG_FILE: /config/orchestrator.yml
       DATA_DIR: /data
-      IMMICH_API_KEY_FILE: /run/secrets/immich_api_key
+      ORCHESTRATOR_API_KEY_FILE: /run/secrets/immich_api_key
       ORCHESTRATOR_ADMIN_PASSWORD_FILE: /run/secrets/orchestrator_admin_password
       LOG_LEVEL: info
     volumes:

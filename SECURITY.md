@@ -6,7 +6,7 @@
 
 - Do not expose the panel directly to the internet.
 - The quick-start mapping `8080:8080` is reachable through the server's LAN and ZeroTier addresses. Use a panel password on a shared network. To restrict access to ZeroTier only, bind the port to the server's specific ZeroTier IP; outside a trusted network, use a TLS/authentication reverse proxy.
-- The simple setup keeps the Immich API key and optional panel password in `.env`. A stricter setup can pass them through `IMMICH_API_KEY_FILE` and `ORCHESTRATOR_ADMIN_PASSWORD_FILE`.
+- The simple setup keeps the Immich API key and optional panel password in `.env`. A stricter setup can pass them through `ORCHESTRATOR_API_KEY_FILE` and `ORCHESTRATOR_ADMIN_PASSWORD_FILE`.
 - Keep real values in `.env`, which is excluded from Git and the Docker build context. Commit only the empty `.env.example`.
 - On Linux, restrict `.env` with `chmod 600 .env`.
 - The advanced Compose example runs the container read-only and without capabilities. Neither setup needs Docker socket access.

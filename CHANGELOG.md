@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4 - 2026-08-01
+
+- Renamed the quick-start Immich credential to `ORCHESTRATOR_API_KEY` so services sharing one `.env` do not accidentally share an API key.
+- Removed the ambiguous `IMMICH_API_KEY`, `IMMICH_API_KEY_FILE`, and `API_KEY` environment aliases.
+- Added a regression test that rejects keys belonging to another service in a shared environment file.
+
 ## 0.1.3 - 2026-08-01
 
 - Fixed write permissions for newly created named state volumes while keeping the runtime process non-root.
