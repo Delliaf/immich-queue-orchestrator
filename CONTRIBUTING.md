@@ -2,7 +2,7 @@
 
 [Русская версия](CONTRIBUTING.ru.md)
 
-Requirements: Node.js 22+ and npm 10+.
+Requirements: Node.js 24 LTS or newer and npm 10+.
 
 ```bash
 npm ci

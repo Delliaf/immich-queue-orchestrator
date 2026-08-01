@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2 - 2026-08-01
+
+- Moved the build, runtime image, and CI baseline to Node.js 24 LTS.
+- Aligned Node type definitions with the runtime major version.
+- Updated ESLint to 10.8.0.
+- Prevented automated major jumps for Node, TypeScript, and Node type definitions.
+
 ## 0.1.1 - 2026-08-01
 
 - Reorganized the documentation around a complete English reference with companion translations.
