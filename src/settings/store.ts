@@ -1,64 +1,59 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, open, readFile, rename } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { parsePersistentState, type PersistentState } from './model.js';
+import { parseRuntimeSettings, type RuntimeSettings } from './schema.js';
 
-export class StateStore {
+export class SettingsStore {
   readonly #path: string;
+  #serialized: string | null = null;
 
   constructor(dataDirectory: string) {
-    this.#path = join(dataDirectory, 'state.json');
+    this.#path = join(dataDirectory, 'settings.json');
   }
 
-  async initialize(now = new Date()): Promise<PersistentState> {
+  async initialize(defaults: RuntimeSettings): Promise<RuntimeSettings> {
     await mkdir(dirname(this.#path), { recursive: true });
     try {
-      return await this.load();
+      const settings = await this.load();
+      this.#serialized = serialize(settings);
+      return settings;
     } catch (error) {
       if (!isMissingFile(error)) throw error;
-      const created: PersistentState = {
-        schemaVersion: 1,
-        controllerInstanceId: randomUUID(),
-        initializedAt: now.toISOString(),
-        autopilotArmed: false,
-        pausedByOperator: false,
-        run: null,
-        lastCompletedRun: null,
-        lastDiscoveryAt: null,
-      };
-      await this.save(created);
-      return created;
+      await this.save(defaults);
+      return defaults;
     }
   }
 
-  async load(): Promise<PersistentState> {
+  async load(): Promise<RuntimeSettings> {
     const content = await readFile(this.#path, 'utf8');
-    let raw: unknown;
     try {
-      raw = JSON.parse(content) as unknown;
+      return parseRuntimeSettings(JSON.parse(content) as unknown);
     } catch (error) {
-      throw new Error(`State file is not valid JSON: ${this.#path}`, { cause: error });
-    }
-    try {
-      return parsePersistentState(raw);
-    } catch (error) {
-      throw new Error(`State file failed schema validation: ${this.#path}`, { cause: error });
+      throw new Error(`Settings file failed validation: ${this.#path}`, { cause: error });
     }
   }
 
-  async save(state: PersistentState): Promise<void> {
-    const validated = parsePersistentState(state);
+  async save(settings: RuntimeSettings): Promise<boolean> {
+    const validated = parseRuntimeSettings(settings);
+    const serialized = serialize(validated);
+    if (serialized === this.#serialized) return false;
     const temporaryPath = `${this.#path}.${process.pid}.${randomUUID()}.tmp`;
     const handle = await open(temporaryPath, 'wx', 0o600);
     try {
-      await handle.writeFile(`${JSON.stringify(validated, null, 2)}\n`, 'utf8');
+      await handle.writeFile(serialized, 'utf8');
       await handle.sync();
     } finally {
       await handle.close();
     }
     await rename(temporaryPath, this.#path);
     await syncDirectory(dirname(this.#path));
+    this.#serialized = serialized;
+    return true;
   }
+}
+
+function serialize(settings: RuntimeSettings): string {
+  return `${JSON.stringify(settings, null, 2)}\n`;
 }
 
 async function syncDirectory(path: string): Promise<void> {

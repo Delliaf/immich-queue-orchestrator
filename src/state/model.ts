@@ -5,6 +5,8 @@ import { QueueNameSchema, type QueueName } from '../domain/queues.js';
 export const ControllerPhaseSchema = z.enum([
   'IDLE',
   'PREPARING',
+  'DISCOVERING',
+  'INVENTORY_READY',
   'GUARDED_IDLE',
   'CAPTURING_UPLOADS',
   'PROCESSING',
@@ -23,6 +25,8 @@ export type RunMode = z.infer<typeof RunModeSchema>;
 
 export const StageStatusSchema = z.enum(['pending', 'draining', 'repair-settling', 'repairing', 'completed']);
 export type StageStatus = z.infer<typeof StageStatusSchema>;
+export const DiscoveryStatusSchema = z.enum(['pending', 'running', 'complete', 'skipped']);
+export type DiscoveryStatus = z.infer<typeof DiscoveryStatusSchema>;
 
 const ActivitySnapshotSchema = z.object({
   assets: z.number().int().nonnegative(),
@@ -40,6 +44,13 @@ const StageRuntimeSchema = z.object({
   quietSince: z.string().nullable(),
   settleUntil: z.string().nullable(),
   completedAt: z.string().nullable(),
+  discoveryStatus: DiscoveryStatusSchema.default('pending'),
+  inventoryCount: z.number().int().nonnegative().default(0),
+  discoveryStartedAt: z.string().nullable().default(null),
+  discoveryCompletedAt: z.string().nullable().default(null),
+  discoveryJobSeen: z.boolean().default(false),
+  discoveryTimedOut: z.boolean().default(false),
+  discoveryNeedsRescan: z.boolean().default(false),
 });
 export interface StageRuntime {
   id: string;
@@ -49,6 +60,13 @@ export interface StageRuntime {
   quietSince: string | null;
   settleUntil: string | null;
   completedAt: string | null;
+  discoveryStatus: DiscoveryStatus;
+  inventoryCount: number;
+  discoveryStartedAt: string | null;
+  discoveryCompletedAt: string | null;
+  discoveryJobSeen: boolean;
+  discoveryTimedOut: boolean;
+  discoveryNeedsRescan: boolean;
 }
 
 const RunStateSchema = z.object({
@@ -61,7 +79,10 @@ const RunStateSchema = z.object({
   desiredQueueStates: z.record(z.string(), z.boolean()),
   stages: z.array(StageRuntimeSchema),
   currentStageIndex: z.number().int().nonnegative(),
+  discoveryStageIndex: z.number().int().nonnegative().default(0),
+  inventoryReadyUntil: z.string().nullable().default(null),
   captureStartedAt: z.string().nullable(),
+  captureStartAssets: z.number().int().nonnegative().default(0),
   captureEndRequested: z.boolean(),
   lastActivityAt: z.string().nullable(),
   lastActivity: ActivitySnapshotSchema.nullable(),
@@ -82,7 +103,10 @@ export interface RunState {
   desiredQueueStates: Partial<Record<QueueName, boolean>>;
   stages: StageRuntime[];
   currentStageIndex: number;
+  discoveryStageIndex: number;
+  inventoryReadyUntil: string | null;
   captureStartedAt: string | null;
+  captureStartAssets: number;
   captureEndRequested: boolean;
   lastActivityAt: string | null;
   lastActivity: ActivitySnapshot | null;
@@ -107,6 +131,7 @@ export const PersistentStateSchema = z.object({
   pausedByOperator: z.boolean(),
   run: RunStateSchema.nullable(),
   lastCompletedRun: CompletedRunSchema.nullable(),
+  lastDiscoveryAt: z.string().nullable().default(null),
 });
 
 export interface PersistentState {
@@ -117,6 +142,7 @@ export interface PersistentState {
   pausedByOperator: boolean;
   run: RunState | null;
   lastCompletedRun: { id: string; mode: RunMode; completedAt: string } | null;
+  lastDiscoveryAt: string | null;
 }
 
 export const createStageRuntime = (stage: PipelineStage): StageRuntime => ({
@@ -127,6 +153,13 @@ export const createStageRuntime = (stage: PipelineStage): StageRuntime => ({
   quietSince: null,
   settleUntil: null,
   completedAt: null,
+  discoveryStatus: 'pending',
+  inventoryCount: 0,
+  discoveryStartedAt: null,
+  discoveryCompletedAt: null,
+  discoveryJobSeen: false,
+  discoveryTimedOut: false,
+  discoveryNeedsRescan: false,
 });
 
 export const resetStages = (stages: StageRuntime[]): StageRuntime[] =>
@@ -137,6 +170,13 @@ export const resetStages = (stages: StageRuntime[]): StageRuntime[] =>
     quietSince: null,
     settleUntil: null,
     completedAt: null,
+    discoveryStatus: 'pending',
+    inventoryCount: 0,
+    discoveryStartedAt: null,
+    discoveryCompletedAt: null,
+    discoveryJobSeen: false,
+    discoveryTimedOut: false,
+    discoveryNeedsRescan: false,
   }));
 
 export function parsePersistentState(input: unknown): PersistentState {

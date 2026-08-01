@@ -4,42 +4,44 @@
 
 ## Container restart
 
-- Without a persisted run: observe only; queues are not changed.
-- With an unfinished owned run and `resumePersistedRun: true`: reconcile the journal and continue.
-- With corrupt state: remain read-only; repair only after manually backing up `/data`.
+- No persisted run: observe only; queues are not changed.
+- Unfinished owned run with `resumePersistedRun: true`: reconcile the journal and continue.
+- Discovery generator still present: adopt it instead of sending a duplicate start.
+- Corrupt `state.json`: preserve it, become read-only, and require manual backup/repair.
+- Missing or corrupt `settings.json`: startup fails with the validation error rather than silently replacing operator settings.
+
+## Upload interruption
+
+An upload during discovery, inventory display, or processing pauses managed queues immediately. A `QueueAll` generator that was already active may finish. After the upload quiet period the orchestrator resets the old inventory and scans every enabled queue again, including one fresh scan after an adopted interrupted generator.
 
 ## Manual override
 
-If a user changes pause/resume in the Immich UI and observed state differs from the committed desired state, the controller enters `PAUSED_BY_OPERATOR`. It does not fight the user every five seconds.
+If a user changes a queue in Immich and observed state differs from the committed desired state, the controller enters `PAUSED_BY_OPERATOR` instead of fighting the user.
 
-Actions:
+- **Resume controller** accepts the current run and continues.
+- **Release control** asks every time whether to keep managed queues paused or restore states captured at run start. Keeping them paused is the default selection.
 
-- **Resume controller**: accept the current run and continue;
-- **Release control**: restore the queue states captured at the beginning of the run and remove active ownership.
+## Ambiguous missing start
 
-## AMBIGUOUS_START
+`PUT /api/jobs/{queue}` is not idempotent. If the request may have reached Immich but no conclusive response or timestamped `QueueAll` evidence exists, the controller stops in `AMBIGUOUS_START`.
 
-This state occurs when `PUT /api/jobs/{queue}` may have reached Immich but no response was received, or the process stopped before a durable commit.
+- `assume-sent`: observe the queue as if the request arrived;
+- `retry-start`: explicitly authorize a potentially duplicate request;
+- `abort`: finish the run and release according to the selected strategy.
 
-The panel offers:
-
-- `assume-sent`: treat the start as delivered and observe the queue;
-- `retry-start`: explicitly authorize a potentially duplicate start;
-- `abort`: restore the original queue states and finish the run.
-
-Check the Immich Jobs UI before deciding. There is no automatic retry.
+Check the Immich Jobs UI before choosing. There is no automatic retry.
 
 ## API unavailable
 
-A polling failure never means that a queue is empty. The controller preserves state and retries a read-only poll. It performs no new mutations until observation recovers. The health endpoint remains available while readiness becomes false.
+A read failure never means an empty queue. The controller preserves state, stops new mutations, and retries observation. `/healthz` remains available while `/readyz` reports the degraded state.
 
 ## Backup
 
-Back up the `/data` volume together with the configuration. Back up the API key and, if used, the panel password separately as secrets. Do not edit `journal.jsonl` while the container is running.
+Back up the `/data` volume. It contains `state.json`, `journal.jsonl`, and `settings.json`, but not the API key or panel password. Back up `.env`/mounted secrets separately. Do not edit these files while the container is running.
 
 ## State volume permission error
 
-Release `0.1.3` initializes new named volumes with the non-root runtime user's ownership. If a volume was created by an earlier release and logs contain `EACCES` for `/data/journal.jsonl`, stop the service and repair that exact volume once:
+New named volumes are initialized for the non-root runtime user. If a volume created by an older image logs `EACCES`, stop the service and repair that exact verified volume once:
 
 ```bash
 docker compose stop immich-queue-orchestrator
@@ -50,4 +52,4 @@ docker run --rm --user root \
 docker compose up -d immich-queue-orchestrator
 ```
 
-Obtain the exact volume name with `docker volume ls`; do not substitute an unverified volume.
+Obtain the exact name with `docker volume ls`; do not substitute an unverified volume.

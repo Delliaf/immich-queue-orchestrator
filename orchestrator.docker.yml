@@ -12,7 +12,7 @@ control:
 api:
   url: http://immich-server:2283/api
   timeout: 10s
-  allowLegacyStart: false
+  allowLegacyStart: true
   strictMajorVersion: true
   supportedMajorVersions: [3]
 

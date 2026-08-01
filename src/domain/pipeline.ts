@@ -19,6 +19,13 @@ export interface PipelineStage {
 
 export const DEFAULT_PIPELINE: readonly PipelineStage[] = [
   {
+    id: 'thumbnails',
+    queue: 'thumbnailGeneration',
+    dependsOn: [],
+    startMissing: true,
+    resourceGroup: 'cpu-io',
+  },
+  {
     id: 'metadata',
     queue: 'metadataExtraction',
     dependsOn: [],
@@ -26,23 +33,16 @@ export const DEFAULT_PIPELINE: readonly PipelineStage[] = [
     resourceGroup: 'cpu-io',
   },
   {
-    id: 'storage',
-    queue: 'storageTemplateMigration',
-    dependsOn: ['metadata'],
-    startMissing: false,
-    resourceGroup: 'io',
-  },
-  {
-    id: 'thumbnails',
-    queue: 'thumbnailGeneration',
-    dependsOn: ['storage'],
+    id: 'sidecar',
+    queue: 'sidecar',
+    dependsOn: [],
     startMissing: true,
-    resourceGroup: 'cpu-io',
+    resourceGroup: 'io',
   },
   {
     id: 'smart-search',
     queue: 'smartSearch',
-    dependsOn: ['thumbnails'],
+    dependsOn: ['metadata', 'thumbnails'],
     startMissing: true,
     resourceGroup: 'ml-text',
     feature: 'smartSearch',

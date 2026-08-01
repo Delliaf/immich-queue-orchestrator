@@ -1,126 +1,109 @@
 # Конфигурация
 
-<!-- translation-source: docs/configuration.md; source-sha256: 3ca178de5135b8a22f222f880173673f40d8a26c55f0a73ea9b8f3d27020fd73 -->
+<!-- translation-source: docs/configuration.md; source-sha256: 65812f47d690ee9e6f454069866db86730038bd9e9d07040fab3b609c28ba525 -->
+
+<!-- translation-source: docs/configuration.md; source-sha256: pending -->
 
 [English](../configuration.md)
 
-В опубликованном image есть встроенный `/app/orchestrator.docker.yml` со всеми обычными настройками для домашнего сервера. Пользовательский `/config/orchestrator.yml` можно подключить read-only и выбрать через `CONFIG_FILE`. Простой Compose напрямую подключает существующий `.env` Immich через `env_file`; добавьте в него `ORCHESTRATOR_API_KEY` и, при желании, `ORCHESTRATOR_ADMIN_PASSWORD`. Отдельное имя ключа предотвращает случайное использование одного ключа несколькими инструментами из общего `.env`. Настоящий `.env` не должен попадать в Git. Расширенный Compose сохраняет файловые secrets и усиленные ограничения контейнера как необязательный более строгий вариант.
+В опубликованном image есть `/app/orchestrator.docker.yml` с начальными настройками для домашнего сервера. Большинство рабочих параметров меняется в web-панели и хранится в `/data/settings.json`. Секреты, URL Immich, bind address, порт, проверка версии и безопасность первого запуска остаются в environment/YAML.
 
-## Bootstrap environment
+## Начальные переменные environment
 
 | Переменная | Назначение |
 |---|---|
-| `CONFIG_FILE` | Путь к YAML, default `./orchestrator.yml` локально и `/app/orchestrator.docker.yml` в image |
-| `DATA_DIR` | Durable state/journal, default `./data` или `/data` в image |
-| `IMMICH_URL` | Override `api.url` |
-| `ORCHESTRATOR_API_KEY` | Отдельный API key Immich только для этого оркестратора в простом запуске через `.env` |
-| `ORCHESTRATOR_API_KEY_FILE` | Необязательный файл с отдельным API key Immich этого оркестратора для более строгого варианта |
-| `ORCHESTRATOR_ADMIN_PASSWORD_FILE` | Файл с паролем панели |
-| `ORCHESTRATOR_ADMIN_PASSWORD` | Пароль панели прямо в environment |
-| `ORCHESTRATOR_HOST` / `ORCHESTRATOR_PORT` | Override bind address |
-| `LOG_LEVEL` | `debug`, `info`, `warn`, `error` |
-| `POLL_INTERVAL` | Активный polling; число без единицы считается секундами |
-| `GUARDED_IDLE_POLL_INTERVAL` | Детектор новых загрузок; обязательно меньше 30 секунд |
-| `STANDBY_POLL_INTERVAL` | Polling без вооружённого автопилота |
-| `UPLOAD_QUIET_PERIOD` | Период тишины автопилота, например `30m` |
-| `ALLOW_LEGACY_START` | `true/false`, включает missing repair-pass |
+| `CONFIG_FILE` | Путь к YAML; в image используется `/app/orchestrator.docker.yml` |
+| `DATA_DIR` | Состояние, journal и рабочие настройки; в image `/data` |
+| `IMMICH_URL` | URL API Immich |
+| `ORCHESTRATOR_API_KEY` | Отдельный API key Immich для этого приложения |
+| `ORCHESTRATOR_API_KEY_FILE` | Необязательный файл с ключом |
+| `ORCHESTRATOR_ADMIN_PASSWORD` | Необязательный обычный пароль панели |
+| `ORCHESTRATOR_ADMIN_PASSWORD_FILE` | Необязательный файл с паролем панели |
+| `ORCHESTRATOR_HOST` / `ORCHESTRATOR_PORT` | Bind address и порт |
+| `LOG_LEVEL` | `debug`, `info`, `warn` или `error` |
+| `POLL_INTERVAL` | Начальный интервал активного polling |
+| `GUARDED_IDLE_POLL_INTERVAL` | Начальный интервал детектора загрузки, меньше 30 секунд |
+| `STANDBY_POLL_INTERVAL` | Начальный polling без вооружённого автопилота |
+| `UPLOAD_QUIET_PERIOD` | Начальный период тишины, например `30m` |
+| `ALLOW_LEGACY_START` | Совместимость с bulk missing endpoint Immich; встроенный default `true` |
 
-Пароль панели не является API token и по умолчанию необязателен. Никаких требований к длине или составу нет. Пароль не печатается в логах и не сохраняется в `/data`. Для простого домашнего запуска используются `ORCHESTRATOR_API_KEY` и `ORCHESTRATOR_ADMIN_PASSWORD`; для более строгой установки доступны их варианты с суффиксом `_FILE`.
+Простой Compose читает `ORCHESTRATOR_API_KEY` и необязательный пароль из существующего `.env` Immich. Не добавляйте настоящий `.env` в Git. Для установки с файловыми secrets доступны варианты `_FILE`.
 
-Стандартный порт панели — `8005`. Строка быстрого запуска `8005:8005` делает панель доступной по LAN- и ZeroTier-адресам сервера. Чтобы оставить доступ только через ZeroTier, замените её на `<zerotier-ip-сервера>:8005:8005`. Для доступа только локально или через reverse proxy используйте `127.0.0.1:8005:8005`.
+`server.authentication: auto` включает вход только при непустом пароле. Режим `password` требует пароль, `none` явно отключает вход. Требований к длине и составу нет. После пяти неверных попыток IP блокируется на пять минут. Панель без пароля должна оставаться в доверенной сети.
 
-`server.authentication` определяет поведение:
+Стандартный mapping `8005:8005` открывает панель через LAN- и ZeroTier-адрес сервера. Для доступа только через ZeroTier укажите `<zerotier-ip-сервера>:8005:8005`, для local/reverse proxy — `127.0.0.1:8005:8005`.
 
-- `auto` — пароль включается, только если передано непустое значение;
-- `password` — пароль обязателен, отсутствие останавливает запуск;
-- `none` — вход по паролю принудительно отключён, даже если переменная задана.
+## Разрешения API key Immich
 
-При включённом пароле после пяти неверных попыток один IP блокируется на пять минут. Браузер хранит пароль только в `sessionStorage` текущей вкладки. Без пароля панель показывает предупреждение о trusted-network режиме.
+Создайте отдельный ключ от учётной записи администратора Immich. Не выбирайте все разрешения. Нужны только:
 
-## Разрешения Immich API key
+- `queue.read` — счётчики и pause state;
+- `queue.update` — pause/resume;
+- `server.statistics` — обнаружение новых фото и видео;
+- `job.create` — запуск каждой проверки отсутствующих с `force=false`;
+- `queueJob.read` — наблюдение за `QueueAll` и восстановление после неоднозначного запроса.
 
-Ключ должен принадлежать учётной записи администратора, поскольку queue и server statistics endpoints требуют admin context. Не выбирайте «все разрешения».
+`queueJob.delete`, `job.read`, разрешения assets и полный доступ ко всему API не требуются.
 
-Минимум для безопасной обработки уже созданных jobs:
+## Рабочие настройки
 
-- `queue.read`;
-- `queue.update`;
-- `server.statistics`.
+Основной редактор — панель. Она валидирует и атомарно записывает `/data/settings.json`; сохранение тех же значений не пишет на диск. Начальный YAML задаёт defaults только до появления этого файла.
 
-Если включён `ALLOW_LEGACY_START=true` или `api.allowLegacyStart: true`, дополнительно нужны:
+### Очереди
 
-- `job.create` — команда «проверить отсутствующие»;
-- `queueJob.read` — поиск доказательства выполненного start после сетевого сбоя или restart.
+У каждой очереди есть порядок, переключатель «Проверять отсутствующие» и один режим:
 
-`queueJob.delete`, `job.read`, asset permissions и доступ ко всем API проекту не нужны.
+- `managed` — пауза во время загрузки/ожидания и последовательная обработка;
+- `always-running` — оркестратор держит очередь запущенной и не ставит её на паузу после этапа;
+- `ignored` — очередь не меняется и не входит в run.
 
-## Safety switches
+Порядок по умолчанию: `thumbnailGeneration`, `metadataExtraction`, `sidecar`, `smartSearch`, `duplicateDetection`, `faceDetection`, `facialRecognition`, `ocr`, `videoConversion`. Все они managed и проверяют отсутствующие. Распознавание лиц должно оставаться после обнаружения лиц.
+
+Не добавляйте системные очереди `backgroundTask`, `migration`, `search`, `notifications`, `backupDatabase`, `workflow`, `integrityCheck` и `editor`.
+
+### Автоматизация
+
+| Настройка | Поведение по умолчанию |
+|---|---|
+| Проверка при включении автопилота | Включена |
+| Проверка при ручном запуске | Включена |
+| Тишина после загрузки | 30 минут |
+| Адаптивное ожидание | Выключено; при включении добавляет время за каждый новый asset до максимума |
+| Периодическая проверка | Выключена; можно задать 1–720 часов в armed idle |
+| Ожидание быстрого discovery | 10 секунд |
+| Timeout discovery | 10 минут на очередь |
+| Показ инвентаризации | 5 секунд |
+| Active poll | 5 секунд |
+| Guarded-idle poll | 10 секунд и всегда меньше 30 секунд |
+| Standby poll | 30 секунд |
+| Подтверждение пустой очереди | 30 секунд |
+
+Загрузка во время discovery или обработки немедленно ставит managed-очереди на паузу. После периода тишины прежняя инвентаризация сбрасывается и все включённые очереди проверяются заново. Периодическая проверка запускает тот же scan-and-process даже без загрузок.
+
+### CPU load guard
+
+`off` не считывает CPU. `observe` включает sampling только при discovery/processing, когда нагрузка полезна в панели. `throttle` дополнительно приостанавливает dispatch после устойчивой высокой нагрузки и продолжает после устойчивой низкой. Moving-average window должен быть не меньше sample interval, а порог resume — ниже порога pause.
+
+В standby, guarded idle и при загрузке CPU sampling выключен. В image нет отдельного периодического Node.js healthcheck process.
+
+## Начальные safety switches
 
 ```yaml
-dryRun: true
+dryRun: false
 control:
   enabled: true
+  newInstallAction: wait
 api:
-  allowLegacyStart: false
+  allowLegacyStart: true
+  strictMajorVersion: true
 ```
 
-- `dryRun: true` блокирует все mutations даже при нажатии кнопок.
+- `dryRun: true` блокирует mutations очередей Immich и run actions; локальные рабочие настройки всё равно можно заранее сохранить в панели.
 - `control.enabled: false` полностью отключает управление.
-- `allowLegacyStart: false` оставляет только queued-only обработку.
-- `strictMajorVersion: true` блокирует mutations на неизвестной major-версии Immich.
+- `newInstallAction: wait` не позволяет новой установке трогать очереди до явной команды.
+- `allowLegacyStart: false` отключает missing discovery и нужен только как fallback совместимости.
+- `strictMajorVersion: true` блокирует mutations для неизвестной major-версии Immich.
 
-## Autopilot
+## Завершение очереди
 
-```yaml
-autopilot:
-  available: true
-  autoEndAfter: 30m
-  minimumCaptureTime: 1m
-  newUploadDuringProcessing: pause-after-active-and-recapture
-```
-
-В armed autopilot все managed queues остаются globally paused в idle. Детектор использует `photos + videos`, storage usage и pending counters. Это polling-эвристика: пауза телефона длиннее `autoEndAfter` может разделить импорт на два безопасных прохода.
-
-Polling адаптивный: по умолчанию 5 секунд при активной обработке, 10 секунд в `GUARDED_IDLE` и 30 секунд без активного run. Таким образом начало загрузки обнаруживается раньше 30 секунд, но недельный простой не создаёт пятисекундных пробуждений.
-
-## Completion
-
-Stage считается завершённым, только если одновременно равны нулю:
-
-```text
-active + waiting + paused + delayed
-```
-
-Ноль должен сохраняться весь `scheduler.quietPeriod`. API error никогда не преобразуется в нулевой snapshot.
-
-## CPU
-
-```yaml
-loadGuard:
-  mode: observe
-  sampleInterval: 2s
-  movingAverageWindow: 30s
-```
-
-`local-host` использует видимые контейнеру системные CPU counters. В Docker Desktop это нагрузка Linux VM. Для автоматического throttling:
-
-CPU sampling выключен в standby, `GUARDED_IDLE` и `CAPTURING_UPLOADS`. Он включается только в processing phases, где его результат способен приостановить выдачу jobs; при остановке накопленная выборка очищается.
-
-```yaml
-loadGuard:
-  mode: throttle
-  pauseAbove: 90
-  pauseFor: 30s
-  resumeBelow: 65
-  resumeFor: 60s
-```
-
-`resumeBelow` обязан быть ниже `pauseAbove`. Pause не отменяет active job, а только останавливает выдачу следующих jobs.
-
-## Pipeline
-
-Pipeline — валидируемый DAG, но scheduler `0.1.0` выполняет его строго последовательно. `feature` связывает stage с `/api/server/features`. Отключённая функция удаляет соответствующий stage из run.
-
-Нельзя добавлять в managed list системные queues: `backgroundTask`, `migration`, `search`, `notifications`, `backupDatabase`, `workflow`, `integrityCheck`, `editor`.
-
-`library` и `sidecar` намеренно отсутствуют в стандартном preset. Они требуют отдельных explicit maintenance operations, которых пока нет.
+Очередь считается пустой, только если `active + waiting + paused + delayed` остаётся равным нулю весь заданный период подтверждения. API error всегда означает неизвестное состояние, а не пустую очередь.

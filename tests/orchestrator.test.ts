@@ -8,6 +8,8 @@ import type { QueueName, QueueSnapshot } from '../src/domain/queues.js';
 import type { ImmichApi } from '../src/immich/client.js';
 import type { QueueJob, ServerFeatures, ServerStatistics, ServerVersion } from '../src/immich/schemas.js';
 import { CpuMonitor } from '../src/monitoring/cpu.js';
+import { defaultRuntimeSettings } from '../src/settings/schema.js';
+import type { RuntimeSettings } from '../src/settings/schema.js';
 import { ActionJournal } from '../src/state/journal.js';
 import type { PersistentState } from '../src/state/model.js';
 import { StateStore } from '../src/state/store.js';
@@ -28,16 +30,25 @@ describe('QueueOrchestrator', () => {
     await fixture.orchestrator.stop();
   });
 
+  it('allows local panel settings to be prepared while queue mutations are in dry-run', async () => {
+    const api = new FakeImmichApi(makeQueue(true, 0));
+    const config = makeConfig(false);
+    config.dryRun = true;
+    const fixture = await createFixture(api, config);
+    const settings = fixture.orchestrator.runtimeSettings();
+    settings.automation.uploadQuietPeriodMs = 123_000;
+
+    await expect(fixture.orchestrator.updateSettings(settings)).resolves.toBe(true);
+    expect(fixture.orchestrator.runtimeSettings().automation.uploadQuietPeriodMs).toBe(123_000);
+    expect(api.mutations).toEqual([]);
+    await fixture.orchestrator.stop();
+  });
+
   it('drains one queue and restores its original state', async () => {
     const api = new FakeImmichApi(makeQueue(false, 2));
     const fixture = await createFixture(api, makeConfig(false));
     await fixture.orchestrator.processBacklog();
-    await fixture.orchestrator.pollNow();
-    fixture.clock.advance(2);
-    await fixture.orchestrator.pollNow();
-    fixture.clock.advance(2);
-    await fixture.orchestrator.pollNow();
-    await fixture.orchestrator.pollNow();
+    await pollUntilPhase(fixture, 'COMPLETED');
 
     const status = fixture.orchestrator.status();
     expect(status.state?.run?.phase).toBe('COMPLETED');
@@ -50,6 +61,7 @@ describe('QueueOrchestrator', () => {
     const api = new FakeImmichApi(makeQueue(true, 0));
     const fixture = await createFixture(api, makeConfig(false));
     await fixture.orchestrator.armAutopilot();
+    await pollUntilPhase(fixture, 'GUARDED_IDLE');
     expect(fixture.orchestrator.status().state?.run?.phase).toBe('GUARDED_IDLE');
 
     api.addUpload(3);
@@ -57,17 +69,118 @@ describe('QueueOrchestrator', () => {
     expect(fixture.orchestrator.status().state?.run?.phase).toBe('CAPTURING_UPLOADS');
     fixture.clock.advance(11);
     await fixture.orchestrator.pollNow();
-    expect(fixture.orchestrator.status().state?.run?.phase).toBe('PROCESSING');
-
-    await fixture.orchestrator.pollNow();
-    fixture.clock.advance(2);
-    await fixture.orchestrator.pollNow();
-    fixture.clock.advance(2);
-    await fixture.orchestrator.pollNow();
-    await fixture.orchestrator.pollNow();
+    expect(fixture.orchestrator.status().state?.run?.phase).toBe('DISCOVERING');
+    await pollUntilPhase(fixture, 'GUARDED_IDLE');
     expect(fixture.orchestrator.status().state?.run?.phase).toBe('GUARDED_IDLE');
     expect(api.queue.isPaused).toBe(true);
     expect(fixture.orchestrator.status().state?.autopilotArmed).toBe(true);
+    await fixture.orchestrator.stop();
+  });
+
+  it('discovers missing media before processing an apparently empty queue', async () => {
+    const api = new FakeImmichApi(makeQueue(true, 0));
+    api.missingOnDiscovery = 5;
+    const fixture = await createFixture(api, makeConfig(true));
+
+    await fixture.orchestrator.processBacklog();
+    expect(fixture.orchestrator.status().state?.run?.phase).toBe('DISCOVERING');
+    await fixture.orchestrator.pollNow();
+    expect(api.startCalls).toBe(1);
+    expect(api.queue.isPaused).toBe(false);
+
+    api.finishDiscovery();
+    fixture.clock.advance(2);
+    await fixture.orchestrator.pollNow();
+    expect(fixture.orchestrator.status().state?.run?.stages[0]?.inventoryCount).toBe(5);
+    expect(api.queue.isPaused).toBe(true);
+
+    await pollUntilPhase(fixture, 'COMPLETED');
+    expect(api.queue.statistics.completed).toBe(5);
+    await fixture.orchestrator.stop();
+  });
+
+  it('pauses discovery immediately when an upload starts and scans again after silence', async () => {
+    const api = new FakeImmichApi(makeQueue(true, 0));
+    const fixture = await createFixture(api, makeConfig(true));
+
+    await fixture.orchestrator.armAutopilot();
+    await fixture.orchestrator.pollNow();
+    expect(api.startCalls).toBe(1);
+    expect(api.queue.isPaused).toBe(false);
+
+    api.addUpload(2);
+    await fixture.orchestrator.pollNow();
+    expect(fixture.orchestrator.status().state?.run?.phase).toBe('CAPTURING_UPLOADS');
+    expect(api.queue.isPaused).toBe(true);
+
+    fixture.clock.advance(11);
+    await fixture.orchestrator.pollNow();
+    expect(fixture.orchestrator.status().state?.run?.phase).toBe('DISCOVERING');
+    await fixture.orchestrator.pollNow();
+    api.finishDiscovery();
+    await fixture.orchestrator.pollNow();
+    await fixture.orchestrator.pollNow();
+    expect(api.startCalls).toBe(2);
+    await fixture.orchestrator.stop();
+  });
+
+  it('also pauses a manual scan-and-process pass when uploading starts', async () => {
+    const api = new FakeImmichApi(makeQueue(true, 0));
+    const fixture = await createFixture(api, makeConfig(true));
+    await fixture.orchestrator.processBacklog();
+    await fixture.orchestrator.pollNow();
+
+    api.addUpload(1);
+    await fixture.orchestrator.pollNow();
+    expect(fixture.orchestrator.status().state?.run?.phase).toBe('CAPTURING_UPLOADS');
+    expect(api.queue.isPaused).toBe(true);
+
+    fixture.clock.advance(11);
+    await fixture.orchestrator.pollNow();
+    expect(fixture.orchestrator.status().state?.run?.phase).toBe('DISCOVERING');
+    await fixture.orchestrator.stop();
+  });
+
+  it('starts an optional periodic discovery while guarded idle', async () => {
+    const api = new FakeImmichApi(makeQueue(true, 0));
+    const fixture = await createFixture(api, makeConfig(true), (settings) => {
+      settings.automation.periodicDiscoveryIntervalMs = 60 * 60_000;
+    });
+
+    await fixture.orchestrator.armAutopilot();
+    await fixture.orchestrator.pollNow();
+    api.finishDiscovery();
+    fixture.clock.advance(2);
+    await fixture.orchestrator.pollNow();
+    await pollUntilPhase(fixture, 'GUARDED_IDLE');
+
+    fixture.clock.advance(60 * 60_000 + 1);
+    await fixture.orchestrator.pollNow();
+    expect(fixture.orchestrator.status().state?.run?.phase).toBe('DISCOVERING');
+    await fixture.orchestrator.stop();
+  });
+
+  it('keeps managed queues paused when releasing autopilot by default', async () => {
+    const api = new FakeImmichApi(makeQueue(false, 0));
+    const fixture = await createFixture(api, makeConfig(false));
+    await fixture.orchestrator.armAutopilot();
+    await pollUntilPhase(fixture, 'GUARDED_IDLE');
+
+    await fixture.orchestrator.release('keep-managed-paused');
+    expect(fixture.orchestrator.status().state?.run).toBeNull();
+    expect(fixture.orchestrator.status().state?.autopilotArmed).toBe(false);
+    expect(api.queue.isPaused).toBe(true);
+    await fixture.orchestrator.stop();
+  });
+
+  it('restores original queue states when explicitly selected during release', async () => {
+    const api = new FakeImmichApi(makeQueue(false, 0));
+    const fixture = await createFixture(api, makeConfig(false));
+    await fixture.orchestrator.armAutopilot();
+    await pollUntilPhase(fixture, 'GUARDED_IDLE');
+
+    await fixture.orchestrator.release('restore-original');
+    expect(api.queue.isPaused).toBe(false);
     await fixture.orchestrator.stop();
   });
 
@@ -77,6 +190,9 @@ describe('QueueOrchestrator', () => {
 
     expect(fixture.orchestrator.status().cpu.monitoring).toBe(false);
     await fixture.orchestrator.armAutopilot();
+    expect(fixture.orchestrator.status().state?.run?.phase).toBe('DISCOVERING');
+    expect(fixture.orchestrator.status().cpu.monitoring).toBe(true);
+    await pollUntilPhase(fixture, 'GUARDED_IDLE');
     expect(fixture.orchestrator.status().state?.run?.phase).toBe('GUARDED_IDLE');
     expect(fixture.orchestrator.status().cpu.monitoring).toBe(false);
 
@@ -87,7 +203,7 @@ describe('QueueOrchestrator', () => {
 
     fixture.clock.advance(11);
     await fixture.orchestrator.pollNow();
-    expect(fixture.orchestrator.status().state?.run?.phase).toBe('PROCESSING');
+    expect(fixture.orchestrator.status().state?.run?.phase).toBe('DISCOVERING');
     expect(fixture.orchestrator.status().cpu.monitoring).toBe(true);
 
     await fixture.orchestrator.stop();
@@ -112,12 +228,14 @@ describe('QueueOrchestrator', () => {
       cpuMonitor,
       logger: silentLogger,
       adminPassword: 'test-password',
+      settings: testSettings(config),
       now: () => new Date('2026-08-01T00:00:00Z'),
     });
     await orchestrator.initialize();
     await orchestrator.processBacklog();
-    await orchestrator.pollNow();
-    await orchestrator.pollNow();
+    for (let attempt = 0; attempt < 8 && orchestrator.status().state?.run?.phase !== 'WAITING_FOR_QUIET'; attempt += 1) {
+      await orchestrator.pollNow();
+    }
     const writesBeforeStableTick = stateStore.writes;
 
     await orchestrator.pollNow();
@@ -160,7 +278,7 @@ describe('QueueOrchestrator', () => {
     await fixture.orchestrator.stop();
 
     const restarted = await initializeOrchestrator(fixture.directory, api, config, () => fixture.clock.now());
-    expect(restarted.status().state?.run?.phase).toBe('PROCESSING');
+    expect(restarted.status().state?.run?.phase).toBe('DISCOVERING');
     expect(await journal.openActions(runId)).toHaveLength(0);
     await restarted.stop();
   });
@@ -189,12 +307,35 @@ describe('QueueOrchestrator', () => {
     expect(api.startCalls).toBe(0);
     await restarted.stop();
   });
+
+  it('rebuilds a persisted guarded-idle stage list after an upgrade', async () => {
+    const api = new FakeImmichApi(makeQueue(true, 0));
+    const config = makeConfig(false);
+    const fixture = await createFixture(api, config);
+    await fixture.orchestrator.armAutopilot();
+    await pollUntilPhase(fixture, 'GUARDED_IDLE');
+    await fixture.orchestrator.stop();
+
+    const store = new StateStore(fixture.directory);
+    const persisted = await store.load();
+    expect(persisted.run).not.toBeNull();
+    persisted.run!.stages[0]!.id = 'old-storage-stage';
+    persisted.run!.stages[0]!.queue = 'storageTemplateMigration';
+    await store.save(persisted);
+
+    const restarted = await initializeOrchestrator(fixture.directory, api, config, () => fixture.clock.now());
+    expect(restarted.status().state?.run?.stages.map((stage) => stage.queue)).toEqual(['metadataExtraction']);
+    expect(restarted.status().state?.run?.phase).toBe('GUARDED_IDLE');
+    await restarted.stop();
+  });
 });
 
 class FakeImmichApi implements ImmichApi {
   readonly mutations: string[] = [];
   startCalls = 0;
   failStart = false;
+  missingOnDiscovery = 0;
+  discoveryPending = false;
   statistics: ServerStatistics = { photos: 100, videos: 10, usage: 1_000_000 };
 
   constructor(readonly queue: QueueSnapshot) {}
@@ -225,11 +366,17 @@ class FakeImmichApi implements ImmichApi {
     return Promise.resolve(structuredClone(this.queue));
   }
   getQueueJobs(): Promise<QueueJob[]> {
-    return Promise.resolve([]);
+    return Promise.resolve(
+      this.discoveryPending
+        ? [{ name: 'AssetExtractMetadataQueueAll', data: {}, timestamp: Date.parse('2026-08-01T00:00:00Z') }]
+        : [],
+    );
   }
   startMissing(): Promise<void> {
     this.startCalls += 1;
-    return this.failStart ? Promise.reject(new Error('socket closed after request')) : Promise.resolve();
+    if (this.failStart) return Promise.reject(new Error('socket closed after request'));
+    this.discoveryPending = true;
+    return Promise.resolve();
   }
   unknownQueueNames(): readonly string[] {
     return [];
@@ -238,6 +385,11 @@ class FakeImmichApi implements ImmichApi {
     this.statistics.photos += count;
     this.statistics.usage += count * 1_000;
     this.queue.statistics.waiting += count;
+  }
+  finishDiscovery(): void {
+    this.discoveryPending = false;
+    this.queue.statistics.waiting += this.missingOnDiscovery;
+    this.missingOnDiscovery = 0;
   }
 }
 
@@ -307,7 +459,11 @@ function makeConfig(allowLegacyStart: boolean, loadGuardMode: 'off' | 'observe' 
   });
 }
 
-async function createFixture(api: FakeImmichApi, config: AppConfig): Promise<{
+async function createFixture(
+  api: FakeImmichApi,
+  config: AppConfig,
+  configureSettings?: (settings: RuntimeSettings) => void,
+): Promise<{
   orchestrator: QueueOrchestrator;
   directory: string;
   clock: { advance(milliseconds: number): void; now(): Date };
@@ -319,7 +475,9 @@ async function createFixture(api: FakeImmichApi, config: AppConfig): Promise<{
     advance: (milliseconds: number) => (timestamp += milliseconds),
     now: () => new Date(timestamp),
   };
-  const orchestrator = await initializeOrchestrator(directory, api, config, clock.now);
+  const settings = testSettings(config);
+  configureSettings?.(settings);
+  const orchestrator = await initializeOrchestrator(directory, api, config, clock.now, settings);
   return { orchestrator, directory, clock };
 }
 
@@ -328,6 +486,7 @@ async function initializeOrchestrator(
   api: FakeImmichApi,
   config: AppConfig,
   now: () => Date,
+  settings: RuntimeSettings = testSettings(config),
 ): Promise<QueueOrchestrator> {
   const orchestrator = new QueueOrchestrator({
     config,
@@ -337,10 +496,32 @@ async function initializeOrchestrator(
     cpuMonitor: new CpuMonitor(10_000, 30_000, now),
     logger: silentLogger,
     adminPassword: 'test-password',
+    settings,
     now,
   });
   await orchestrator.initialize();
   return orchestrator;
+}
+
+function testSettings(config: AppConfig) {
+  const settings = defaultRuntimeSettings(config);
+  settings.automation.inventoryHoldMs = 0;
+  settings.automation.discoverySettleMs = 1;
+  settings.automation.discoveryTimeoutMs = 10_000;
+  return settings;
+}
+
+async function pollUntilPhase(
+  fixture: { orchestrator: QueueOrchestrator; clock: { advance(milliseconds: number): void } },
+  phase: string,
+  maximumTicks = 30,
+): Promise<void> {
+  for (let tick = 0; tick < maximumTicks; tick += 1) {
+    if (fixture.orchestrator.status().state?.run?.phase === phase) return;
+    fixture.clock.advance(2);
+    await fixture.orchestrator.pollNow();
+  }
+  expect(fixture.orchestrator.status().state?.run?.phase).toBe(phase);
 }
 
 function makeQueue(isPaused: boolean, waiting: number): QueueSnapshot {

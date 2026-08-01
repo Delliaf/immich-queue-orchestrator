@@ -1,84 +1,68 @@
 # План проекта
 
-<!-- translation-source: docs/project-plan.md; source-sha256: 14328defbb7eebdb88aa2691e9534c6b2e54e9f45106e02739211f6501ecffd1 -->
+<!-- translation-source: docs/project-plan.md; source-sha256: ceb2072ddf80c690d8e8f89068d919c36eb6856f88e45ca0d0f8bf8225afbf37 -->
+
+<!-- translation-source: docs/project-plan.md; source-sha256: pending -->
 
 [English](../project-plan.md)
 
 ## Статус
 
-Версия `0.1.3` реализует минимальный безопасный оркестратор и опубликована для `linux/amd64` и `linux/arm64`. Базовая версия проверки API-контрактов — Immich `v3.1.0`. Перед включением строгого управления на следующих major-версиях Immich совместимость queue endpoints нужно проверять заново.
+Версия `0.2.0` реализует inventory-first workflow и рабочие настройки через панель. Baseline API — Immich `v3.1.0`; queue endpoints нужно повторно проверять для следующих major-версий до включения strict control.
 
 ## Цель продукта
 
-Перенести ручной сценарий со слабых домашних серверов в лёгкий и восстанавливаемый контроллер:
+Автоматизировать сценарий слабого домашнего сервера:
 
-1. держать тяжёлые очереди на паузе ещё до начала загрузки;
-2. обнаруживать загрузку не позднее чем за 30 секунд;
-3. ждать настроенный период тишины;
-4. обрабатывать строго одну очередь за раз;
-5. опционально выполнять один missing-jobs repair-pass только после опустошения backlog;
-6. возвращаться в guarded idle.
+1. держать тяжёлые очереди на паузе до загрузки;
+2. обнаруживать загрузку быстрее 30 секунд и сразу ставить паузу;
+3. после тишины запускать все включённые проверки отсутствующих;
+4. после discovery снова ставить каждую managed-очередь на паузу и показывать количество;
+5. обрабатывать очереди по одной в заданном оператором порядке;
+6. начинать полную проверку заново при новой загрузке;
+7. возвращаться в guarded idle с опциональной периодической проверкой.
 
-## Обязательные правила безопасности
+## Safety и ресурсы
 
-- Использовать только публичный HTTP API Immich.
-- Никогда не писать напрямую в Redis или PostgreSQL.
-- Не требовать Docker socket.
-- Не удалять jobs и по умолчанию не запускать force reprocessing.
-- Держать открытой не более одной managed queue.
-- Считать API error неизвестным состоянием, а не пустой очередью.
-- Сохранять намерение до mutation и проверять observed state после неё.
-- Никогда автоматически не повторять неоднозначный non-idempotent start.
-- Уважать ручные изменения из Immich UI.
+- Только публичный HTTP API Immich; без Redis/PostgreSQL и Docker socket.
+- Не удалять jobs и не отменять active work.
+- Намеренно открывать не больше одной managed-очереди.
+- API errors считать неизвестным состоянием, а не пустой очередью.
+- Записывать intent до mutation и проверять результат после.
+- Не повторять неоднозначный missing start вслепую.
+- Уважать ручные изменения в Immich.
+- Один Node.js 24 LTS process с heap target 64 MiB.
+- CPU sampling только при discovery/processing.
+- Guarded-idle polling меньше 30 секунд, более редкий standby polling.
+- Запись только при изменении и без child-process healthcheck.
 
-## Модель потребления ресурсов
+## Реализовано в 0.2.0
 
-- Один процесс Node.js 24 LTS с целевым heap 64 MiB.
-- Адаптивные интервалы polling для active, guarded-idle и standby.
-- CPU sampling только во время обработки, когда результат может повлиять на dispatch.
-- Запись state только при изменении, чтобы не создавать лишние операции с диском.
-- Без отдельного периодического процесса Node.js для Docker healthcheck.
-- Ограничения Compose по умолчанию: `192m` RAM и `0.25` CPU.
+- Немедленный discovery при включении автопилота и ручном run.
+- Все девять требуемых очередей, включая sidecar и правильный порядок face stages.
+- Порядок, missing switch и managed/always-running/ignored policy для каждой очереди.
+- Прерывание discovery/processing загрузкой с полной повторной проверкой.
+- Опциональные adaptive quiet и periodic discovery.
+- Валидируемые persistent settings без записи при отсутствии изменений.
+- Панель с вкладками, live found counts и выбором поведения при release.
+- Adoption/reconciliation `QueueAll` после restart.
+- Regression tests discovery, upload interruption, periodic scans, settings, release behavior и UI API.
 
-## Реализовано в 0.1.0
+## Следующая валидация
 
-- Проверенный клиент Immich queue API и runtime schemas ответов.
-- Observe-first startup и явное включение автопилота.
-- Guarded capture загрузок с настраиваемым периодом тишины.
-- Последовательный pipeline и drain-first missing repair.
-- Durable state snapshot и append-only action journal.
-- Restart reconciliation и решения оператора для ambiguous start.
-- Обнаружение manual override и освобождение управления.
-- Встроенная панель с необязательным паролем и rate limiting.
-- Наблюдение за CPU и опциональный hysteresis throttling.
-- Защищённые примеры Docker и Compose.
-- Автоматические тесты, Docker CI, multi-architecture releases, provenance и Dependabot.
+- Проверить большую реальную библиотеку Immich и записать timing `QueueAll` каждого stage.
+- Проверить upload interruption, restart, API outage, manual override и always-running policy на реальном сервере.
+- Измерить idle memory, wakeups и CPU на слабых mini PC.
+- Перепроверять endpoint contracts для каждой поддерживаемой major-версии Immich.
+- Менять defaults только на основании реальных измерений.
 
-## Следующие этапы
+## Acceptance criteria
 
-### Усиление совместимости
-
-- Проверять каждую поддерживаемую линейку релизов Immich.
-- Фиксировать изменения endpoints и проверенные source snapshots.
-- Добавлять fixtures для новых вариантов queue responses.
-
-### Эксплуатационная проверка
-
-- Выполнить dry-run наблюдение на реальной библиотеке.
-- Проверить прерывание загрузки, restart контейнера, недоступность API и manual override.
-- Измерить idle wakeups и память на типичных слабых мини-ПК.
-
-### Зрелость релизов
-
-- Менять статус defaults только после проверки на реальной библиотеке.
-- Публиковать инструкции по обновлению и rollback для каждого релиза, меняющего поведение.
-
-## Критерии приёмки
-
-- В guarded idle загрузка обнаруживается за настроенный интервал и всегда менее чем за 30 секунд.
-- Контроллер никогда намеренно не открывает более одной managed queue.
-- Восстановление после restart не дублирует неоднозначный legacy start.
-- Недельный простой не использует частый active polling или CPU sampling.
-- Неизменившийся tick не переписывает durable state.
-- Новая установка никогда не продолжает существующие очереди без явной команды оператора.
-- Публичный контейнер анонимно скачивается для обеих поддерживаемых архитектур.
+- Включение над существующей библиотекой находит missing work без предыдущей загрузки.
+- Загрузка обнаруживается за заданный интервал и всегда быстрее 30 секунд в guarded idle.
+- Каждая включённая очередь проверяется, а inventory показывается до обработки.
+- Новая загрузка ставит managed-очереди на паузу и вызывает полный post-quiet rescan.
+- Facial recognition не запускается раньше face detection.
+- Недельный idle не использует active polling и CPU sampling.
+- Неизменившиеся ticks/settings не перезаписывают snapshots.
+- Новая установка не продолжает очереди без явной команды оператора.

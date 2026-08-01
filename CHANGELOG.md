@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.0 - 2026-08-01
+
+- Changed autopilot and manual runs to scan all enabled Immich missing-work generators before sequential processing.
+- Added upload interruption during discovery and processing, followed by a full post-quiet rescan.
+- Added per-queue discovered counts, ordering, missing-check switches, and `managed` / `always-running` / `ignored` policies.
+- Added sidecar to the nine-queue default pipeline and kept facial recognition after face detection.
+- Added optional adaptive quiet time and periodic missing discovery.
+- Added validated runtime settings in `/data/settings.json` with atomic, change-only persistence.
+- Rebuilt the panel with Overview, Queues, Automation, CPU load, and Advanced tabs.
+- Added an explicit release dialog whose default keeps managed queues paused.
+- Added QueueAll adoption/reconciliation and regression coverage for inventory, uploads, periodic scans, release behavior, settings, and UI APIs.
+- Added safe migration of persisted guarded-idle runs to the current queue list after an upgrade.
+
 ## 0.1.5 - 2026-08-01
 
 - Changed the default web panel port from `8080` to the less commonly used port `8005` across the application, container, Compose examples, and documentation.

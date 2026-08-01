@@ -10,7 +10,7 @@
 - Keep real values in `.env`, which is excluded from Git and the Docker build context. Commit only the empty `.env.example`.
 - On Linux, restrict `.env` with `chmod 600 .env`.
 - The advanced Compose example runs the container read-only and without capabilities. Neither setup needs Docker socket access.
-- Restrict access to `/data`. It contains operational state and the audit journal, but not the API key.
+- Restrict access to `/data`. It contains operational state, runtime settings, and the audit journal, but not the API key or panel password.
 
 ## Reporting
 
@@ -18,4 +18,4 @@ Report vulnerabilities privately through a GitHub Security Advisory for this rep
 
 ## Threat boundary
 
-The project controls pause/resume and the optional missing-job start through an administrator API key. Panel authentication can be disabled in trusted-network mode; the UI clearly identifies that mode, and it is unsuitable for internet exposure. When a password is enabled, it is compared in constant time and repeated failures are rate-limited by IP. The project deliberately has no access to the Docker socket, Redis, or PostgreSQL.
+The project controls pause/resume and missing-job starts through a dedicated administrator API key with the five documented permissions. Panel authentication can be disabled in trusted-network mode; the UI clearly identifies that mode, and it is unsuitable for internet exposure. When a password is enabled, it is compared in constant time and repeated failures are rate-limited by IP. The project deliberately has no access to the Docker socket, Redis, or PostgreSQL.

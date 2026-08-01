@@ -3,6 +3,8 @@ import { loadConfig, loadSecrets } from './config/load.js';
 import { QueueOrchestrator } from './controller/orchestrator.js';
 import { ImmichClient } from './immich/client.js';
 import { CpuMonitor } from './monitoring/cpu.js';
+import { defaultRuntimeSettings } from './settings/schema.js';
+import { SettingsStore } from './settings/store.js';
 import { ActionJournal } from './state/journal.js';
 import { StateStore } from './state/store.js';
 import { JsonLogger } from './utils/logger.js';
@@ -14,6 +16,8 @@ async function main(): Promise<void> {
   const config = await loadConfig(configPath);
   const secrets = await loadSecrets();
   const logger = new JsonLogger(logLevel(process.env.LOG_LEVEL));
+  const settingsStore = new SettingsStore(dataDirectory);
+  const settings = await settingsStore.initialize(defaultRuntimeSettings(config));
 
   const orchestrator = new QueueOrchestrator({
     config,
@@ -24,9 +28,11 @@ async function main(): Promise<void> {
     }),
     stateStore: new StateStore(dataDirectory),
     journal: new ActionJournal(dataDirectory),
-    cpuMonitor: new CpuMonitor(config.loadGuard.sampleIntervalMs, config.loadGuard.movingAverageWindowMs),
+    cpuMonitor: new CpuMonitor(settings.loadGuard.sampleIntervalMs, settings.loadGuard.movingAverageWindowMs),
     logger,
     adminPassword: secrets.adminPassword,
+    settings,
+    settingsStore,
   });
 
   if (orchestrator.status().control.authentication === 'none') {

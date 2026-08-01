@@ -37,9 +37,9 @@ export const FORBIDDEN_MANAGED_QUEUES = new Set<QueueName>([
 ]);
 
 export const DEFAULT_MANAGED_QUEUES = [
-  'metadataExtraction',
-  'storageTemplateMigration',
   'thumbnailGeneration',
+  'metadataExtraction',
+  'sidecar',
   'smartSearch',
   'duplicateDetection',
   'faceDetection',
