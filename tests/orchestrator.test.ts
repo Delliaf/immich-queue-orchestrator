@@ -308,7 +308,7 @@ describe('QueueOrchestrator', () => {
     await restarted.stop();
   });
 
-  it('rebuilds a persisted guarded-idle stage list after an upgrade', async () => {
+  it('rebuilds and scans a persisted guarded-idle stage list after an upgrade', async () => {
     const api = new FakeImmichApi(makeQueue(true, 0));
     const config = makeConfig(false);
     const fixture = await createFixture(api, config);
@@ -325,7 +325,7 @@ describe('QueueOrchestrator', () => {
 
     const restarted = await initializeOrchestrator(fixture.directory, api, config, () => fixture.clock.now());
     expect(restarted.status().state?.run?.stages.map((stage) => stage.queue)).toEqual(['metadataExtraction']);
-    expect(restarted.status().state?.run?.phase).toBe('GUARDED_IDLE');
+    expect(restarted.status().state?.run?.phase).toBe('DISCOVERING');
     await restarted.stop();
   });
 });

@@ -1128,8 +1128,9 @@ export class QueueOrchestrator {
     const expectedStages = enabledPipeline(this.#orderedPipeline(), this.#features).map(createStageRuntime);
     const currentQueues = run.stages.map((stage) => stage.queue);
     const expectedQueues = expectedStages.map((stage) => stage.queue);
-    let dirty = JSON.stringify(currentQueues) !== JSON.stringify(expectedQueues);
-    if (dirty) {
+    const stagesChanged = JSON.stringify(currentQueues) !== JSON.stringify(expectedQueues);
+    let dirty = stagesChanged;
+    if (stagesChanged) {
       run.stages = expectedStages;
       run.currentStageIndex = 0;
       run.discoveryStageIndex = 0;
@@ -1155,6 +1156,11 @@ export class QueueOrchestrator {
         if (queue.isPaused !== desired) dirty = true;
         await this.#setQueuePaused(run, queue, desired, 'apply current queue policy after restart');
       }
+    }
+    if (stagesChanged && run.phase === 'GUARDED_IDLE' && this.#settings.automation.scanOnAutopilotStart) {
+      this.#beginDiscovery(run);
+      dirty = true;
+      this.#logger.info('Missing-media discovery started after upgrading a persisted autopilot run', { runId: run.id });
     }
     if (dirty) await this.#saveState();
   }

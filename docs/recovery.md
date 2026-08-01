@@ -7,6 +7,7 @@
 - No persisted run: observe only; queues are not changed.
 - Unfinished owned run with `resumePersistedRun: true`: reconcile the journal and continue.
 - Discovery generator still present: adopt it instead of sending a duplicate start.
+- Persisted guarded-idle run with an older queue list: rebuild the safe idle stages and immediately start the new inventory pass.
 - Corrupt `state.json`: preserve it, become read-only, and require manual backup/repair.
 - Missing or corrupt `settings.json`: startup fails with the validation error rather than silently replacing operator settings.
 
