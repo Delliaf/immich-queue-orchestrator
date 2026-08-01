@@ -1,6 +1,6 @@
 # Конфигурация
 
-<!-- translation-source: docs/configuration.md; source-sha256: 65812f47d690ee9e6f454069866db86730038bd9e9d07040fab3b609c28ba525 -->
+<!-- translation-source: docs/configuration.md; source-sha256: 407a6bdea9448c11e22a53177b4091899bd9c5fb596b9d5b233f5cd8db608664 -->
 
 <!-- translation-source: docs/configuration.md; source-sha256: pending -->
 
@@ -51,15 +51,15 @@
 
 ### Очереди
 
-У каждой очереди есть порядок, переключатель «Проверять отсутствующие» и один режим:
+У каждой очереди есть порядок, переключатели «Проверять отсутствующие» и «Стабилизировать счётчик», а также один режим:
 
 - `managed` — пауза во время загрузки/ожидания и последовательная обработка;
 - `always-running` — оркестратор держит очередь запущенной и не ставит её на паузу после этапа;
 - `ignored` — очередь не меняется и не входит в run.
 
-Порядок по умолчанию: `thumbnailGeneration`, `metadataExtraction`, `sidecar`, `smartSearch`, `duplicateDetection`, `faceDetection`, `facialRecognition`, `ocr`, `videoConversion`. Все они managed и проверяют отсутствующие. Распознавание лиц должно оставаться после обнаружения лиц.
+Порядок по умолчанию: `thumbnailGeneration`, `metadataExtraction`, `sidecar`, `smartSearch`, `duplicateDetection`, `faceDetection`, `facialRecognition`, `ocr`, `videoConversion`. Все они managed и проверяют отсутствующие. Стабилизация счётчика по умолчанию включена для metadata extraction, sidecar, duplicate detection и facial recognition. Распознавание лиц должно оставаться после обнаружения лиц.
 
-Не добавляйте системные очереди `backgroundTask`, `migration`, `search`, `notifications`, `backupDatabase`, `workflow`, `integrityCheck` и `editor`.
+Не добавляйте системные очереди `backgroundTask`, `migration`, `search`, `notifications`, `backupDatabase`, `workflow`, `integrityCheck` и `editor`. `storageTemplateMigration` также запрещена: это отдельная долгая последовательная операция перемещения файлов, а не обычная missing-media обработка.
 
 ### Автоматизация
 
@@ -67,12 +67,14 @@
 |---|---|
 | Проверка при включении автопилота | Включена |
 | Проверка при ручном запуске | Включена |
+| Приоритет обработки | Заданный порядок; опционально сначала минимальный стабильный остаток |
 | Тишина после загрузки | 30 минут |
 | Адаптивное ожидание | Выключено; при включении добавляет время за каждый новый asset до максимума |
 | Периодическая проверка | Выключена; можно задать 1–720 часов в armed idle |
 | Ожидание быстрого discovery | 10 секунд |
 | Timeout discovery | 10 минут на очередь |
 | Показ инвентаризации | 5 секунд |
+| Стабилизация временного счётчика | Включена для выбранных queues; окна 15 секунд, падение минимум 20%, максимум 2 минуты |
 | Active poll | 5 секунд |
 | Guarded-idle poll | 10 секунд и всегда меньше 30 секунд |
 | Standby poll | 30 секунд |
@@ -80,11 +82,15 @@
 
 Загрузка во время discovery или обработки немедленно ставит managed-очереди на паузу. После периода тишины прежняя инвентаризация сбрасывается и все включённые очереди проверяются заново. Периодическая проверка запускает тот же scan-and-process даже без загрузок.
 
+В режиме «сначала минимальный стабильный остаток» stages топологически перестраиваются после discovery. Сначала идёт минимальная готовая очередь, но dependency всегда остаётся раньше; поэтому facial recognition не опережает face detection.
+
+Во время стабилизации выбранная очередь остаётся открытой, пока созданный счётчик быстро уменьшается. Каждое окно сравнивает pending count с предыдущей выборкой. Наблюдение продолжается только при достаточном проценте падения и заканчивается на стабильном значении, нуле или maximum duration. Начальный всплеск и стабильный остаток сохраняются для панели.
+
 ### CPU load guard
 
 `off` не считывает CPU. `observe` включает sampling только при discovery/processing, когда нагрузка полезна в панели. `throttle` дополнительно приостанавливает dispatch после устойчивой высокой нагрузки и продолжает после устойчивой низкой. Moving-average window должен быть не меньше sample interval, а порог resume — ниже порога pause.
 
-В standby, guarded idle и при загрузке CPU sampling выключен. В image нет отдельного периодического Node.js healthcheck process.
+В standby, guarded idle и при загрузке CPU sampling по умолчанию выключен. Переключатель «Показывать CPU в простое» включает sampling в unarmed и guarded idle через уже существующий in-process sampler с заданным интервалом, но это естественно добавляет фоновые пробуждения. При upload capture sampling всё равно выключается. В image нет отдельного периодического Node.js healthcheck process.
 
 ## Начальные safety switches
 

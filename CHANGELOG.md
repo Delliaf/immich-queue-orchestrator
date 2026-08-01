@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 - 2026-08-01
+
+- Added configurable processing priority: configured order or smallest stabilized backlog first with dependency preservation.
+- Added per-queue transient-counter stabilization, enabled by default for metadata, sidecar, duplicate detection, and facial recognition.
+- Added initial-versus-stabilized inventory reporting and configurable observation window, decay threshold, and maximum duration.
+- Added opt-in CPU monitoring in guarded and unarmed idle while keeping the low-resource default off.
+- Explicitly prohibited Storage Template Migration from automatic management and removed its bulk-start mapping.
+
 ## 0.2.1 - 2026-08-01
 
 - Automatically starts the new inventory pass when upgrading an already armed guarded-idle autopilot run from the pre-inventory queue list.

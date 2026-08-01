@@ -47,15 +47,15 @@ The panel is the primary editor. It validates and atomically writes `/data/setti
 
 ### Queues
 
-Each listed queue has an order, a **Check missing** switch, and one policy:
+Each listed queue has an order, a **Check missing** switch, a **Stabilize count** switch, and one policy:
 
 - `managed`: pause during uploads/idle and process sequentially;
 - `always-running`: the orchestrator keeps it unpaused and never pauses it at stage completion;
 - `ignored`: never mutated or included in a run.
 
-The default exact order is `thumbnailGeneration`, `metadataExtraction`, `sidecar`, `smartSearch`, `duplicateDetection`, `faceDetection`, `facialRecognition`, `ocr`, and `videoConversion`. All are managed and checked for missing work. Keep facial recognition after face detection.
+The default exact order is `thumbnailGeneration`, `metadataExtraction`, `sidecar`, `smartSearch`, `duplicateDetection`, `faceDetection`, `facialRecognition`, `ocr`, and `videoConversion`. All are managed and checked for missing work. Count stabilization defaults on for metadata extraction, sidecar, duplicate detection, and facial recognition. Keep facial recognition after face detection.
 
-Do not manage system queues such as `backgroundTask`, `migration`, `search`, `notifications`, `backupDatabase`, `workflow`, `integrityCheck`, or `editor`.
+Do not manage system queues such as `backgroundTask`, `migration`, `search`, `notifications`, `backupDatabase`, `workflow`, `integrityCheck`, or `editor`. `storageTemplateMigration` is also prohibited: it is a separate long serial file-moving operation rather than ordinary missing-media processing.
 
 ### Automation
 
@@ -63,12 +63,14 @@ Do not manage system queues such as `backgroundTask`, `migration`, `search`, `no
 |---|---|
 | Scan on autopilot start | On |
 | Scan on manual start | On |
+| Processing priority | Configured order; optional smallest stabilized backlog first |
 | Upload quiet period | 30 minutes |
 | Adaptive quiet | Off; if enabled, adds time per newly uploaded asset up to a maximum |
 | Periodic missing scan | Off; can run every 1–720 hours while armed and idle |
 | Discovery settle | 10 seconds for a fast `QueueAll` fallback |
 | Discovery timeout | 10 minutes per queue |
 | Inventory display hold | 5 seconds |
+| Transient counter stabilization | On for selected queues; 15-second windows, at least 20% decay, 2-minute maximum |
 | Active poll | 5 seconds |
 | Guarded-idle poll | 10 seconds and always below 30 seconds |
 | Standby poll | 30 seconds |
@@ -76,11 +78,15 @@ Do not manage system queues such as `backgroundTask`, `migration`, `search`, `no
 
 An upload detected during discovery or processing pauses managed queues immediately. After the quiet period, the previous inventory is discarded and every enabled queue is checked again. Periodic discovery follows the same scan-and-process path even when no upload occurred.
 
+With **smallest stabilized backlog first**, stages are topologically reordered after discovery. The smallest ready queue runs first, but a dependency always remains earlier; facial recognition therefore cannot precede face detection.
+
+During transient stabilization the selected queue remains open while its generated count is falling quickly. Every observation window compares the new pending count with the previous sample. Observation continues only while the configured percentage drop is met, and stops on a stable count, zero, or the maximum duration. The initial spike and stabilized remainder are both retained for the panel.
+
 ### CPU load guard
 
 `off` performs no CPU sampling. `observe` samples only during discovery/processing so the panel can show relevant load. `throttle` additionally pauses managed dispatch after sustained high load and resumes after sustained low load. The moving-average window must be at least the sampling interval and the resume threshold must be below the pause threshold.
 
-CPU sampling is stopped in standby, guarded idle, and upload capture. The image has no separate periodic Node.js healthcheck process.
+CPU sampling is stopped in standby, guarded idle, and upload capture by default. **Show CPU load while idle** can opt into sampling in unarmed and guarded idle; this uses the existing in-process sampler and its configured interval, but naturally adds background wakeups. Upload capture still disables it. The image has no separate periodic Node.js healthcheck process.
 
 ## Bootstrap safety switches
 

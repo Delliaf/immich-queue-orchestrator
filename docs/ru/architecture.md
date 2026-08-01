@@ -1,6 +1,6 @@
 # Архитектура
 
-<!-- translation-source: docs/architecture.md; source-sha256: 924c2fa9a29cd32fb0c897347a68fe65271efb5fed25a0ee7da1361deeefe17a -->
+<!-- translation-source: docs/architecture.md; source-sha256: 8abd56732afbca7801815ce55820e5d267fb35abe834f5ad593ab74f584f5c7b -->
 
 <!-- translation-source: docs/architecture.md; source-sha256: pending -->
 
@@ -33,7 +33,7 @@ state.json   journal.jsonl   settings.json
 ## Основной сценарий
 
 ```text
-IDLE -> PREPARING -> DISCOVERING -> INVENTORY_READY
+IDLE -> PREPARING -> DISCOVERING [-> стабилизация счётчика] -> INVENTORY_READY
                                -> RUNNING_STAGE <-> WAITING_FOR_QUIET
                                -> COMPLETED | GUARDED_IDLE
 
@@ -45,6 +45,8 @@ GUARDED_IDLE -> CAPTURING_UPLOADS -> DISCOVERING
 
 Включение автопилота и ручная команда «Проверить и обработать» обычно сразу переходят в `DISCOVERING`. Для каждой включённой очереди контроллер временно снимает паузу, запускает или принимает существующий missing generator `QueueAll`, следит за ним через queue-job API, фиксирует получившийся pending count и снова ставит managed-очередь на паузу. `INVENTORY_READY` удерживает найденные количества видимыми заданное короткое время перед обработкой.
 
+Выбранные high-churn queues после `QueueAll` входят в ограниченную subphase стабилизации: очередь остаётся открытой, пока pending count быстро падает, затем контроллер фиксирует стабильный остаток. При shortest-first priority stages топологически выбираются по этому стабильному значению без нарушения dependencies.
+
 Immich выполняет `QueueAll` внутри целевой очереди, поэтому наполнить полностью paused-очередь без временного открытия невозможно. Polling сокращает это окно, но существующие или только что созданные jobs могут успеть начаться до возврата паузы. Active work не отменяется.
 
 ## Режимы очередей
@@ -54,6 +56,8 @@ Immich выполняет `QueueAll` внутри целевой очереди,
 - `ignored` — исключена из stages и никогда не меняется.
 
 Зависимости валидируются перед run. В частности, распознавание лиц идёт после обнаружения лиц.
+
+Storage template и file migration — защищённые maintenance queues и никогда не входят в controlled stages.
 
 ## Durable mutation protocol
 
@@ -71,4 +75,4 @@ PREPARED (fsync) -> API call -> проверка ответа/чтением -> 
 
 В guarded idle managed-очереди уже стоят на паузе. Polling статистики обнаруживает рост assets за настроенный интервал, который валидируется ниже 30 секунд. Загрузка во время любого активного прохода сразу останавливает dispatch, после чего полная инвентаризация запускается заново через фиксированный или опционально зависящий от числа assets период тишины.
 
-Discovery/processing обычно опрашиваются каждые 5 секунд, guarded idle — 10, standby — 30. CPU sampling работает только в фазах, где нагрузка показывается или может приостановить dispatch. Отдельного Node.js healthcheck process нет.
+Discovery/processing обычно опрашиваются каждые 5 секунд, guarded idle — 10, standby — 30. CPU sampling обычно работает только в фазах, где нагрузка показывается или может приостановить dispatch; отдельная настройка оставляет тот же sampler включённым в idle. Отдельного Node.js healthcheck process нет.

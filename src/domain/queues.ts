@@ -27,6 +27,7 @@ export type QueueName = z.infer<typeof QueueNameSchema>;
 
 export const FORBIDDEN_MANAGED_QUEUES = new Set<QueueName>([
   'backgroundTask',
+  'storageTemplateMigration',
   'migration',
   'search',
   'notifications',
@@ -57,7 +58,6 @@ export const QUEUE_ALL_JOB_NAMES: Partial<Record<QueueName, string>> = {
   facialRecognition: 'FacialRecognitionQueueAll',
   ocr: 'OcrQueueAll',
   videoConversion: 'AssetEncodeVideoQueueAll',
-  storageTemplateMigration: 'StorageTemplateMigration',
   sidecar: 'SidecarQueueAll',
   library: 'LibraryScanQueueAll',
 };

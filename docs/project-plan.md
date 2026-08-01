@@ -4,7 +4,7 @@
 
 ## Status
 
-Version `0.2.1` implements the inventory-first workflow and panel-managed automation settings. The API contract baseline is Immich `v3.1.0`; queue endpoints must be revalidated for later major versions before strict control is enabled.
+Version `0.3.0` implements inventory stabilization, dependency-safe priority, and optional idle CPU observation on top of the inventory-first workflow. The API contract baseline is Immich `v3.1.0`; queue endpoints must be revalidated for later major versions before strict control is enabled.
 
 ## Product goal
 
@@ -14,7 +14,7 @@ Automate the low-power home-server workflow:
 2. detect uploads within 30 seconds and pause immediately;
 3. after quiet, run every enabled missing check;
 4. pause each managed queue after discovery and expose its inventory count;
-5. process queues one at a time in operator-defined order;
+5. process queues one at a time in configured order or by smallest stabilized remainder;
 6. rescan from the beginning if another upload arrives;
 7. return to guarded idle, with optional periodic discovery.
 
@@ -28,7 +28,7 @@ Automate the low-power home-server workflow:
 - Never blindly retry an ambiguous missing start.
 - Respect manual changes in Immich.
 - One Node.js 24 LTS process with a 64 MiB heap target.
-- CPU sampling only during discovery/processing.
+- CPU sampling only during discovery/processing by default, with explicit idle opt-in.
 - Guarded idle polling below 30 seconds; slower standby polling.
 - Change-only persistence and no child-process healthcheck.
 
@@ -43,6 +43,14 @@ Automate the low-power home-server workflow:
 - Tabbed English-first panel with live discovered counts and release choice.
 - QueueAll adoption/reconciliation across restarts.
 - Automated regression tests for discovery, upload interruption, periodic scans, settings, release behavior, and UI API.
+
+## Delivered in 0.3.0
+
+- Configured-order and dependency-safe smallest-first processing priorities.
+- Bounded transient-counter stabilization with initial/stable inventory reporting.
+- Per-queue stabilization switches and defaults for the four observed high-churn queues.
+- Optional CPU display in guarded and unarmed idle.
+- Hard exclusion of storage template and file migration from automatic control.
 
 ## Next validation milestones
 
@@ -59,6 +67,6 @@ Automate the low-power home-server workflow:
 - Every enabled queue is scanned and its inventory displayed before sequential processing.
 - A new upload pauses managed queues and causes a complete post-quiet rescan.
 - Facial recognition never precedes face detection.
-- A week of idle operation performs no active-rate polling or CPU sampling.
+- A week of idle operation performs no active-rate polling and, unless explicitly enabled, no CPU sampling.
 - Unchanged ticks/settings do not rewrite durable snapshots.
 - A fresh installation never resumes queues without explicit operator action.

@@ -578,6 +578,7 @@ export class QueueOrchestrator {
   }
 
   #beginDiscovery(run: RunState): void {
+    if (this.#features) run.stages = enabledPipeline(this.#orderedPipeline(), this.#features).map(createStageRuntime);
     run.phase = 'DISCOVERING';
     run.discoveryStageIndex = 0;
     run.inventoryReadyUntil = null;
@@ -593,6 +594,7 @@ export class QueueOrchestrator {
     const stage = run.stages[run.discoveryStageIndex];
     if (!stage) {
       const now = this.#now();
+      this.#applyProcessingPriority(run);
       this.#requireState().lastDiscoveryAt = now.toISOString();
       run.inventoryReadyUntil = new Date(now.getTime() + this.#settings.automation.inventoryHoldMs).toISOString();
       run.phase = 'INVENTORY_READY';
@@ -611,6 +613,7 @@ export class QueueOrchestrator {
     if (!setting || setting.policy === 'ignored' || !setting.checkMissing || !this.#config.api.allowLegacyStart) {
       stage.discoveryStatus = 'skipped';
       stage.inventoryCount = pendingJobs(queue);
+      stage.inventoryInitialCount = stage.inventoryCount;
       stage.discoveryCompletedAt = this.#nowIso();
       stage.repairAttempted = true;
       run.discoveryStageIndex += 1;
@@ -618,9 +621,14 @@ export class QueueOrchestrator {
       return;
     }
 
-    if (stage.discoveryStatus === 'running' && queue.isPaused && !run.loadThrottled) {
+    if (['running', 'stabilizing'].includes(stage.discoveryStatus) && queue.isPaused && !run.loadThrottled) {
       await this.#setQueuePaused(run, queue, false, `resume discovery for ${stage.queue} after load guard`);
       await this.#saveState();
+      return;
+    }
+
+    if (stage.discoveryStatus === 'stabilizing') {
+      await this.#tickTransientCounterStabilization(run, stage, queue, setting);
       return;
     }
 
@@ -686,13 +694,75 @@ export class QueueOrchestrator {
     await this.#refreshObservation();
     const refreshed = this.#queueByName(stage.queue);
     if (!refreshed) throw new Error(`Discovery queue disappeared: ${stage.queue}`);
-    if (setting.policy === 'managed' && !refreshed.isPaused) {
-      await this.#setQueuePaused(run, refreshed, true, `freeze ${stage.queue} inventory before processing`);
+    if (
+      !timedOut &&
+      setting.stabilizeTransientCount &&
+      this.#settings.automation.transientCounterStabilizationEnabled &&
+      pendingJobs(refreshed) > 0
+    ) {
+      const now = this.#nowIso();
+      stage.discoveryStatus = 'stabilizing';
+      stage.inventoryInitialCount = pendingJobs(refreshed);
+      stage.inventoryCount = stage.inventoryInitialCount;
+      stage.stabilizationStartedAt = now;
+      stage.stabilizationSampleAt = now;
+      stage.stabilizationSampleCount = stage.inventoryInitialCount;
+      await this.#saveState();
+      return;
+    }
+    await this.#completeDiscoveryStage(run, stage, refreshed, setting.policy, timedOut);
+  }
+
+  async #tickTransientCounterStabilization(
+    run: RunState,
+    stage: StageRuntime,
+    queue: QueueSnapshot,
+    setting: RuntimeSettings['queues'][number],
+  ): Promise<void> {
+    const automation = this.#settings.automation;
+    const now = this.#now();
+    const current = pendingJobs(queue);
+    const startedAt = stage.stabilizationStartedAt ? Date.parse(stage.stabilizationStartedAt) : now.getTime();
+    const sampleAt = stage.stabilizationSampleAt ? Date.parse(stage.stabilizationSampleAt) : now.getTime();
+    const previous = stage.stabilizationSampleCount ?? current;
+
+    if (current === 0 || now.getTime() - startedAt >= automation.transientCounterMaxMs) {
+      await this.#completeDiscoveryStage(run, stage, queue, setting.policy, false);
+      return;
+    }
+    if (now.getTime() - sampleAt < automation.transientCounterWindowMs) return;
+
+    const dropPercent = previous > 0 ? ((previous - current) / previous) * 100 : 0;
+    if (current < previous && dropPercent >= automation.transientCounterMinimumDropPercent) {
+      stage.inventoryCount = current;
+      stage.stabilizationSampleAt = now.toISOString();
+      stage.stabilizationSampleCount = current;
+      await this.#saveState();
+      return;
+    }
+    await this.#completeDiscoveryStage(run, stage, queue, setting.policy, false);
+  }
+
+  async #completeDiscoveryStage(
+    run: RunState,
+    stage: StageRuntime,
+    queue: QueueSnapshot,
+    policy: QueuePolicy,
+    timedOut: boolean,
+  ): Promise<void> {
+    if (policy === 'managed' && !queue.isPaused) {
+      await this.#setQueuePaused(run, queue, true, `freeze ${stage.queue} inventory before processing`);
       await this.#refreshObservation();
     }
     const inventory = this.#queueByName(stage.queue);
+    const count = inventory ? pendingJobs(inventory) : 0;
     stage.discoveryStatus = 'complete';
-    stage.inventoryCount = inventory ? pendingJobs(inventory) : 0;
+    stage.inventoryCount = count;
+    if (stage.inventoryInitialCount === 0) stage.inventoryInitialCount = count;
+    stage.inventoryStabilized = stage.inventoryInitialCount > count;
+    stage.stabilizationStartedAt = null;
+    stage.stabilizationSampleAt = null;
+    stage.stabilizationSampleCount = null;
     stage.discoveryCompletedAt = this.#nowIso();
     stage.discoveryTimedOut = timedOut;
     run.discoveryStageIndex += 1;
@@ -701,6 +771,40 @@ export class QueueOrchestrator {
       this.#logger.warn('Missing-media discovery timed out', { runId: run.id, queue: stage.queue });
     }
     await this.#saveState();
+  }
+
+  #applyProcessingPriority(run: RunState): void {
+    if (this.#settings.automation.processingPriority === 'configured-order') return;
+    const definitions = new Map(this.#config.pipeline.map((stage) => [stage.id, stage]));
+    const configuredPosition = new Map(this.#settings.queues.map((setting, index) => [setting.queue, index]));
+    const remaining = [...run.stages];
+    const ordered: StageRuntime[] = [];
+    const selected = new Set<string>();
+    const enabledIds = new Set(run.stages.map((stage) => stage.id));
+
+    while (remaining.length > 0) {
+      const ready = remaining.filter((stage) => {
+        const definition = definitions.get(stage.id);
+        return definition?.dependsOn.every((dependency) => !enabledIds.has(dependency) || selected.has(dependency)) ?? true;
+      });
+      if (ready.length === 0) throw new Error('Unable to resolve a dependency-safe processing priority');
+      ready.sort(
+        (left, right) =>
+          left.inventoryCount - right.inventoryCount ||
+          (configuredPosition.get(left.queue) ?? Number.MAX_SAFE_INTEGER) -
+            (configuredPosition.get(right.queue) ?? Number.MAX_SAFE_INTEGER),
+      );
+      const next = ready[0];
+      if (!next) throw new Error('Unable to select the next processing stage');
+      ordered.push(next);
+      selected.add(next.id);
+      remaining.splice(remaining.indexOf(next), 1);
+    }
+    run.stages = ordered;
+    this.#logger.info('Processing stages prioritized by smallest stabilized inventory', {
+      runId: run.id,
+      order: ordered.map((stage) => ({ queue: stage.queue, count: stage.inventoryCount })),
+    });
   }
 
   async #tickInventoryReady(run: RunState): Promise<void> {
@@ -945,11 +1049,17 @@ export class QueueOrchestrator {
   #syncCpuMonitoring(): void {
     const run = this.#state?.run;
     const phase = run?.phase;
-    const needed = this.#settings.loadGuard.mode !== 'off' && phase !== undefined && CPU_MONITORED_PHASES.has(phase);
+    const activelyNeeded = phase !== undefined && CPU_MONITORED_PHASES.has(phase);
+    const idle = phase === undefined || phase === 'GUARDED_IDLE' || TERMINAL_PHASES.has(phase);
+    const needed =
+      this.#settings.loadGuard.mode !== 'off' &&
+      (activelyNeeded || (this.#settings.loadGuard.monitorInIdle && idle));
     if (needed) {
-      if (!this.#cpu.isRunning() && run) {
-        run.loadHighSince = null;
-        run.loadLowSince = null;
+      if (!this.#cpu.isRunning()) {
+        if (run) {
+          run.loadHighSince = null;
+          run.loadLowSince = null;
+        }
         this.#cpu.start();
       }
     } else {

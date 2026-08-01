@@ -1,6 +1,6 @@
 # План проекта
 
-<!-- translation-source: docs/project-plan.md; source-sha256: 8fa93623ee765088885eeeb98a10d76611aa2b9eff4b35a295f0f054d53ab32e -->
+<!-- translation-source: docs/project-plan.md; source-sha256: 62a421aec9cce26e362f9ce2789d70812094bac6ee6e1f323ddb23e7d32a5be4 -->
 
 <!-- translation-source: docs/project-plan.md; source-sha256: pending -->
 
@@ -8,7 +8,7 @@
 
 ## Статус
 
-Версия `0.2.1` реализует inventory-first workflow и рабочие настройки через панель. Baseline API — Immich `v3.1.0`; queue endpoints нужно повторно проверять для следующих major-версий до включения strict control.
+Версия `0.3.0` добавляет стабилизацию inventory, dependency-safe priority и опциональное наблюдение CPU в idle поверх inventory-first workflow. Baseline API — Immich `v3.1.0`; queue endpoints нужно повторно проверять для следующих major-версий до включения strict control.
 
 ## Цель продукта
 
@@ -18,7 +18,7 @@
 2. обнаруживать загрузку быстрее 30 секунд и сразу ставить паузу;
 3. после тишины запускать все включённые проверки отсутствующих;
 4. после discovery снова ставить каждую managed-очередь на паузу и показывать количество;
-5. обрабатывать очереди по одной в заданном оператором порядке;
+5. обрабатывать очереди по одной в заданном порядке или по минимальному стабильному остатку;
 6. начинать полную проверку заново при новой загрузке;
 7. возвращаться в guarded idle с опциональной периодической проверкой.
 
@@ -32,7 +32,7 @@
 - Не повторять неоднозначный missing start вслепую.
 - Уважать ручные изменения в Immich.
 - Один Node.js 24 LTS process с heap target 64 MiB.
-- CPU sampling только при discovery/processing.
+- CPU sampling только при discovery/processing по умолчанию, с явным opt-in для idle.
 - Guarded-idle polling меньше 30 секунд, более редкий standby polling.
 - Запись только при изменении и без child-process healthcheck.
 
@@ -47,6 +47,14 @@
 - Панель с вкладками, live found counts и выбором поведения при release.
 - Adoption/reconciliation `QueueAll` после restart.
 - Regression tests discovery, upload interruption, periodic scans, settings, release behavior и UI API.
+
+## Реализовано в 0.3.0
+
+- Приоритеты configured-order и dependency-safe smallest-first.
+- Ограниченная стабилизация временного счётчика с показом начального и стабильного inventory.
+- Per-queue switches и defaults для четырёх наблюдаемых high-churn queues.
+- Опциональный показ CPU в guarded и unarmed idle.
+- Жёсткое исключение storage template и file migration из автоматического управления.
 
 ## Следующая валидация
 
@@ -63,6 +71,6 @@
 - Каждая включённая очередь проверяется, а inventory показывается до обработки.
 - Новая загрузка ставит managed-очереди на паузу и вызывает полный post-quiet rescan.
 - Facial recognition не запускается раньше face detection.
-- Недельный idle не использует active polling и CPU sampling.
+- Недельный idle не использует active polling и, без явного включения, CPU sampling.
 - Неизменившиеся ticks/settings не перезаписывают snapshots.
 - Новая установка не продолжает очереди без явной команды оператора.

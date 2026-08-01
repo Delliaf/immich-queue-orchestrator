@@ -30,6 +30,19 @@ describe('configuration', () => {
         pipeline: [],
       }),
     ).toThrow(/forbidden/i);
+    expect(() =>
+      parseConfig({
+        scheduler: { managedQueues: ['storageTemplateMigration'] },
+        pipeline: [
+          {
+            id: 'storage',
+            queue: 'storageTemplateMigration',
+            dependsOn: [],
+            resourceGroup: 'io',
+          },
+        ],
+      }),
+    ).toThrow(/forbidden/i);
   });
 
   it('requires hysteresis for CPU throttling', () => {

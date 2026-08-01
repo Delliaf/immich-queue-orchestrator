@@ -99,6 +99,78 @@ describe('QueueOrchestrator', () => {
     await fixture.orchestrator.stop();
   });
 
+  it('stabilizes a fast-decaying generated counter before recording inventory', async () => {
+    const api = new FakeImmichApi(makeQueue(true, 0));
+    api.missingOnDiscovery = 40_000;
+    const fixture = await createFixture(api, makeConfig(true), (settings) => {
+      settings.automation.transientCounterStabilizationEnabled = true;
+      settings.automation.transientCounterWindowMs = 15_000;
+      settings.automation.transientCounterMaxMs = 120_000;
+      settings.automation.transientCounterMinimumDropPercent = 20;
+      settings.queues[0]!.stabilizeTransientCount = true;
+    });
+
+    await fixture.orchestrator.processBacklog();
+    await fixture.orchestrator.pollNow();
+    api.finishDiscovery();
+    fixture.clock.advance(2);
+    await fixture.orchestrator.pollNow();
+    expect(fixture.orchestrator.status().state?.run?.stages[0]?.discoveryStatus).toBe('stabilizing');
+    expect(fixture.orchestrator.status().state?.run?.stages[0]?.inventoryInitialCount).toBe(40_000);
+
+    api.queue.statistics.waiting = 1_000;
+    fixture.clock.advance(15_000);
+    await fixture.orchestrator.pollNow();
+    expect(fixture.orchestrator.status().state?.run?.stages[0]?.discoveryStatus).toBe('stabilizing');
+
+    api.queue.statistics.waiting = 900;
+    fixture.clock.advance(15_000);
+    await fixture.orchestrator.pollNow();
+    const stage = fixture.orchestrator.status().state?.run?.stages[0];
+    expect(stage?.discoveryStatus).toBe('complete');
+    expect(stage?.inventoryCount).toBe(900);
+    expect(stage?.inventoryInitialCount).toBe(40_000);
+    expect(stage?.inventoryStabilized).toBe(true);
+    expect(api.queue.isPaused).toBe(true);
+    await fixture.orchestrator.stop();
+  });
+
+  it('prioritizes the smallest stabilized inventory when selected', async () => {
+    const api = new FakeImmichApi(makeQueueNamed('metadataExtraction', true, 100), [
+      makeQueueNamed('ocr', true, 5),
+    ]);
+    api.features.ocr = true;
+    const fixture = await createFixture(api, makePriorityConfig(), (settings) => {
+      settings.automation.processingPriority = 'smallest-first';
+    });
+
+    await fixture.orchestrator.processBacklog();
+    await pollUntilPhase(fixture, 'INVENTORY_READY');
+    expect(fixture.orchestrator.status().state?.run?.stages.map((stage) => stage.queue)).toEqual([
+      'ocr',
+      'metadataExtraction',
+    ]);
+    await fixture.orchestrator.stop();
+  });
+
+  it('keeps required dependencies ahead of a smaller inventory', async () => {
+    const api = new FakeImmichApi(makeQueueNamed('faceDetection', true, 100), [
+      makeQueueNamed('facialRecognition', true, 5),
+    ]);
+    api.features.facialRecognition = true;
+    const fixture = await createFixture(api, makeFacePriorityConfig(), (settings) => {
+      settings.automation.processingPriority = 'smallest-first';
+    });
+
+    await fixture.orchestrator.processBacklog();
+    await pollUntilPhase(fixture, 'INVENTORY_READY');
+    expect(fixture.orchestrator.status().state?.run?.stages.map((stage) => stage.queue)).toEqual([
+      'faceDetection',
+      'facialRecognition',
+    ]);
+    await fixture.orchestrator.stop();
+  });
+
   it('pauses discovery immediately when an upload starts and scans again after silence', async () => {
     const api = new FakeImmichApi(makeQueue(true, 0));
     const fixture = await createFixture(api, makeConfig(true));
@@ -208,6 +280,18 @@ describe('QueueOrchestrator', () => {
 
     await fixture.orchestrator.stop();
     expect(fixture.orchestrator.status().cpu.monitoring).toBe(false);
+  });
+
+  it('optionally keeps CPU sampling visible while idle', async () => {
+    const api = new FakeImmichApi(makeQueue(true, 0));
+    const fixture = await createFixture(api, makeConfig(false, 'observe'), (settings) => {
+      settings.loadGuard.monitorInIdle = true;
+    });
+
+    expect(fixture.orchestrator.status().cpu.monitoring).toBe(false);
+    await fixture.orchestrator.pollNow();
+    expect(fixture.orchestrator.status().cpu.monitoring).toBe(true);
+    await fixture.orchestrator.stop();
   });
 
   it('does not fsync state again when a processing tick changes nothing', async () => {
@@ -337,33 +421,35 @@ class FakeImmichApi implements ImmichApi {
   missingOnDiscovery = 0;
   discoveryPending = false;
   statistics: ServerStatistics = { photos: 100, videos: 10, usage: 1_000_000 };
+  features: ServerFeatures = { smartSearch: false, duplicateDetection: false, facialRecognition: false, ocr: false };
 
-  constructor(readonly queue: QueueSnapshot) {}
+  constructor(readonly queue: QueueSnapshot, readonly additionalQueues: QueueSnapshot[] = []) {}
 
   getVersion(): Promise<ServerVersion> {
     return Promise.resolve({ major: 3, minor: 1, patch: 0 });
   }
   getFeatures(): Promise<ServerFeatures> {
-    return Promise.resolve({ smartSearch: false, duplicateDetection: false, facialRecognition: false, ocr: false });
+    return Promise.resolve(structuredClone(this.features));
   }
   getServerStatistics(): Promise<ServerStatistics> {
     return Promise.resolve(structuredClone(this.statistics));
   }
   getQueues(): Promise<QueueSnapshot[]> {
-    return Promise.resolve([structuredClone(this.queue)]);
+    return Promise.resolve(structuredClone([this.queue, ...this.additionalQueues]));
   }
-  getQueue(): Promise<QueueSnapshot> {
-    return Promise.resolve(structuredClone(this.queue));
+  getQueue(name: QueueName): Promise<QueueSnapshot> {
+    return Promise.resolve(structuredClone(this.findQueue(name)));
   }
   setQueuePaused(name: QueueName, isPaused: boolean): Promise<QueueSnapshot> {
-    this.queue.isPaused = isPaused;
+    const queue = this.findQueue(name);
+    queue.isPaused = isPaused;
     this.mutations.push(`${isPaused ? 'pause' : 'resume'}:${name}`);
-    if (!isPaused && this.queue.statistics.waiting > 0) {
-      this.queue.statistics.completed += this.queue.statistics.waiting;
-      this.queue.statistics.waiting = 0;
-      this.queue.statistics.paused = 0;
+    if (!isPaused && queue.statistics.waiting > 0) {
+      queue.statistics.completed += queue.statistics.waiting;
+      queue.statistics.waiting = 0;
+      queue.statistics.paused = 0;
     }
-    return Promise.resolve(structuredClone(this.queue));
+    return Promise.resolve(structuredClone(queue));
   }
   getQueueJobs(): Promise<QueueJob[]> {
     return Promise.resolve(
@@ -390,6 +476,12 @@ class FakeImmichApi implements ImmichApi {
     this.discoveryPending = false;
     this.queue.statistics.waiting += this.missingOnDiscovery;
     this.missingOnDiscovery = 0;
+  }
+
+  private findQueue(name: QueueName): QueueSnapshot {
+    const queue = [this.queue, ...this.additionalQueues].find((candidate) => candidate.name === name);
+    if (!queue) throw new Error(`Unknown fake queue: ${name}`);
+    return queue;
   }
 }
 
@@ -459,6 +551,71 @@ function makeConfig(allowLegacyStart: boolean, loadGuardMode: 'off' | 'observe' 
   });
 }
 
+function makePriorityConfig(): AppConfig {
+  return parseConfig({
+    dryRun: false,
+    control: { enabled: true },
+    api: { allowLegacyStart: false },
+    scheduler: {
+      managedQueues: ['metadataExtraction', 'ocr'],
+      pollInterval: 1,
+      quietPeriod: 1,
+      startSettlePeriod: 1,
+    },
+    loadGuard: { mode: 'off' },
+    pipeline: [
+      {
+        id: 'metadata',
+        queue: 'metadataExtraction',
+        dependsOn: [],
+        startMissing: true,
+        resourceGroup: 'cpu-io',
+      },
+      {
+        id: 'ocr',
+        queue: 'ocr',
+        dependsOn: [],
+        startMissing: true,
+        resourceGroup: 'ml-text',
+        feature: 'ocr',
+      },
+    ],
+  });
+}
+
+function makeFacePriorityConfig(): AppConfig {
+  return parseConfig({
+    dryRun: false,
+    control: { enabled: true },
+    api: { allowLegacyStart: false },
+    scheduler: {
+      managedQueues: ['faceDetection', 'facialRecognition'],
+      pollInterval: 1,
+      quietPeriod: 1,
+      startSettlePeriod: 1,
+    },
+    loadGuard: { mode: 'off' },
+    pipeline: [
+      {
+        id: 'face-detection',
+        queue: 'faceDetection',
+        dependsOn: [],
+        startMissing: true,
+        resourceGroup: 'ml-vision',
+        feature: 'facialRecognition',
+      },
+      {
+        id: 'facial-recognition',
+        queue: 'facialRecognition',
+        dependsOn: ['face-detection'],
+        startMissing: true,
+        resourceGroup: 'ml-vision',
+        feature: 'facialRecognition',
+      },
+    ],
+  });
+}
+
 async function createFixture(
   api: FakeImmichApi,
   config: AppConfig,
@@ -508,6 +665,7 @@ function testSettings(config: AppConfig) {
   settings.automation.inventoryHoldMs = 0;
   settings.automation.discoverySettleMs = 1;
   settings.automation.discoveryTimeoutMs = 10_000;
+  settings.automation.transientCounterStabilizationEnabled = false;
   return settings;
 }
 
@@ -525,8 +683,12 @@ async function pollUntilPhase(
 }
 
 function makeQueue(isPaused: boolean, waiting: number): QueueSnapshot {
+  return makeQueueNamed('metadataExtraction', isPaused, waiting);
+}
+
+function makeQueueNamed(name: QueueName, isPaused: boolean, waiting: number): QueueSnapshot {
   return {
-    name: 'metadataExtraction',
+    name,
     isPaused,
     statistics: { active: 0, completed: 0, failed: 0, delayed: 0, waiting, paused: 0 },
   };
