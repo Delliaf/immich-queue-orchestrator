@@ -1,6 +1,6 @@
 # Совместимость с Immich
 
-<!-- translation-source: docs/compatibility.md; source-sha256: 43e6d6168e2be6d1b9f2af2faf89f85e7185c338eee541068b547faf7c0f68e3 -->
+<!-- translation-source: docs/compatibility.md; source-sha256: 3fe1dd286c1b06500fb0b0d20a4fc410c094cec9ae9d7ae7c1e8288cce0519af -->
 
 <!-- translation-source: docs/compatibility.md; source-sha256: pending -->
 
@@ -31,6 +31,8 @@ Metadata extraction, sidecar, duplicate detection и facial recognition могу
 Storage Template Migration намеренно исключена. В проверенном server это одна non-concurrent job, которая потоково проходит assets и перемещает файлы; её `active=1` не показывает оставшееся число assets. Системная Migration queue также исключена.
 
 Endpoint неидемпотентен, а replacement bulk-start endpoint в проверенной версии отсутствует. Неоднозначная доставка требует решения оператора вместо автоматического retry.
+
+Immich может явно отклонить start с HTTP 400, когда очередь уже active. Response body с `Job is already running` откладывает missing scan до завершения активной работы очереди, после чего контроллер повторяет запрос с небольшой задержкой. Уже идущая `QueueAll` scan принимается под наблюдение только тогда, когда её удалось определить через просмотр jobs. Другие явные 4xx ставят контроллер на паузу и сохраняют очищенное body в diagnostics; ambiguous operator gate используется только для сбоев без однозначного client response.
 
 ## Ограничения счётчиков
 

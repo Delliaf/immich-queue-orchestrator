@@ -1,6 +1,6 @@
 # Архитектура
 
-<!-- translation-source: docs/architecture.md; source-sha256: 8abd56732afbca7801815ce55820e5d267fb35abe834f5ad593ab74f584f5c7b -->
+<!-- translation-source: docs/architecture.md; source-sha256: 14c43a50fb83c7355d0ffd0d98f4ab2bfb908bafd38f60238ccebc2a568015a2 -->
 
 <!-- translation-source: docs/architecture.md; source-sha256: pending -->
 
@@ -76,3 +76,9 @@ PREPARED (fsync) -> API call -> проверка ответа/чтением -> 
 В guarded idle managed-очереди уже стоят на паузе. Polling статистики обнаруживает рост assets за настроенный интервал, который валидируется ниже 30 секунд. Загрузка во время любого активного прохода сразу останавливает dispatch, после чего полная инвентаризация запускается заново через фиксированный или опционально зависящий от числа assets период тишины.
 
 Discovery/processing обычно опрашиваются каждые 5 секунд, guarded idle — 10, standby — 30. CPU sampling обычно работает только в фазах, где нагрузка показывается или может приостановить dispatch; отдельная настройка оставляет тот же sampler включённым в idle. Отдельного Node.js healthcheck process нет.
+
+## Наблюдаемость
+
+Один встроенный structured logger пишет принятые записи в stdout контейнера и ограниченное кольцо в RAM. Обычный режим фиксирует lifecycle actions, Подробный добавляет изменения позиции контроллера и отклонённые вызовы Immich, Максимальный — наблюдения каждого poll и timings запросов. Запись позиции содержит run/phase identifiers, индексы discovery и processing, status текущего stage, число assets, pending count и API connectivity, поэтому повторяющийся цикл discovery становится виден напрямую.
+
+Чувствительные ключи context скрываются до обоих outputs. Приложение не добавляет периодических записей логов на диск; diagnostic HTTP endpoint копирует RAM-кольцо только по запросу. Отчёт дополняет его текущим state и несекретными settings/configuration, чтобы проблему можно было воспроизвести без API credentials.

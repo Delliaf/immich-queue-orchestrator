@@ -16,7 +16,7 @@ The published image contains `/app/orchestrator.docker.yml` with sensible home-s
 | `ORCHESTRATOR_ADMIN_PASSWORD` | Optional normal login password for the panel |
 | `ORCHESTRATOR_ADMIN_PASSWORD_FILE` | Optional file containing the panel password |
 | `ORCHESTRATOR_HOST` / `ORCHESTRATOR_PORT` | Bind address and port overrides |
-| `LOG_LEVEL` | `debug`, `info`, `warn`, or `error` |
+| `LOG_LEVEL` | Bootstrap-only `trace`, `debug`, `info`, `warn`, or `error`; the saved panel setting takes over after startup |
 | `POLL_INTERVAL` | Initial active polling interval |
 | `GUARDED_IDLE_POLL_INTERVAL` | Initial upload detector interval; below 30 seconds |
 | `STANDBY_POLL_INTERVAL` | Initial polling while autopilot is not armed |
@@ -87,6 +87,20 @@ During transient stabilization the selected queue remains open while its generat
 `off` performs no CPU sampling. `observe` samples only during discovery/processing so the panel can show relevant load. `throttle` additionally pauses managed dispatch after sustained high load and resumes after sustained low load. The moving-average window must be at least the sampling interval and the resume threshold must be below the pause threshold.
 
 CPU sampling is stopped in standby, guarded idle, and upload capture by default. **Show CPU load while idle** can opt into sampling in unarmed and guarded idle; this uses the existing in-process sampler and its configured interval, but naturally adds background wakeups. Upload capture still disables it. The image has no separate periodic Node.js healthcheck process.
+
+### Logging and diagnostic reports
+
+| Level | Intended use |
+|---|---|
+| Errors only | Only failures |
+| Warnings and errors | Failures and operator attention |
+| Normal | Default permanent mode; major actions and lifecycle events |
+| Detailed | Controller decisions, state transitions, rejected API response bodies |
+| Maximum diagnostics | Every controller poll, queue snapshot, and Immich API request with status, duration, and response size |
+
+The logger stores a bounded ring in memory, configurable from 100 to 20,000 entries; 1,000 is the low-resource default. Overwritten entry count is visible in the panel. API keys, authorization values, cookies, passwords, secrets, and tokens are recursively redacted before an entry reaches either the ring or container stdout. No separate log file is written by the application. Docker may retain stdout according to its configured logging driver.
+
+**Download diagnostic report** exports JSON containing the current controller status, runtime settings, non-secret bootstrap configuration, and the complete retained log. The live panel fetches at most the newest 1,000 entries. Use Detailed for ordinary troubleshooting and enable Maximum only while reproducing a polling or API problem.
 
 ## Bootstrap safety switches
 

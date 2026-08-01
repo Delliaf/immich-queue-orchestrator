@@ -60,6 +60,12 @@ export const RuntimeSettingsSchema = z
       resumeBelow: z.number().min(0).max(99).nullable(),
       resumeForMs: z.number().int().min(1_000).max(60 * 60_000),
     }),
+    logging: z
+      .object({
+        level: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
+        retainedEntries: z.number().int().min(100).max(20_000).default(1_000),
+      })
+      .default({ level: 'info', retainedEntries: 1_000 }),
     queues: z.array(QueueRuntimeSettingSchema).min(1),
   })
   .superRefine((settings, context) => {
@@ -150,6 +156,10 @@ export function defaultRuntimeSettings(config: AppConfig): RuntimeSettings {
       pauseForMs: config.loadGuard.pauseForMs,
       resumeBelow: config.loadGuard.resumeBelow,
       resumeForMs: config.loadGuard.resumeForMs,
+    },
+    logging: {
+      level: 'info',
+      retainedEntries: 1_000,
     },
     queues: config.pipeline.map((stage) => ({
       queue: stage.queue,

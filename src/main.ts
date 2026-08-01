@@ -18,6 +18,7 @@ async function main(): Promise<void> {
   const logger = new JsonLogger(logLevel(process.env.LOG_LEVEL));
   const settingsStore = new SettingsStore(dataDirectory);
   const settings = await settingsStore.initialize(defaultRuntimeSettings(config));
+  logger.configure(settings.logging.level, settings.logging.retainedEntries);
 
   const orchestrator = new QueueOrchestrator({
     config,
@@ -25,6 +26,7 @@ async function main(): Promise<void> {
       baseUrl: config.api.url,
       apiKey: secrets.immichApiKey,
       timeoutMs: config.api.timeoutMs,
+      logger,
     }),
     stateStore: new StateStore(dataDirectory),
     journal: new ActionJournal(dataDirectory),
@@ -63,9 +65,9 @@ async function main(): Promise<void> {
   process.once('SIGTERM', () => void shutdown('SIGTERM'));
 }
 
-function logLevel(value: string | undefined): 'debug' | 'info' | 'warn' | 'error' {
-  return ['debug', 'info', 'warn', 'error'].includes(value ?? '')
-    ? (value as 'debug' | 'info' | 'warn' | 'error')
+function logLevel(value: string | undefined): 'trace' | 'debug' | 'info' | 'warn' | 'error' {
+  return ['trace', 'debug', 'info', 'warn', 'error'].includes(value ?? '')
+    ? (value as 'trace' | 'debug' | 'info' | 'warn' | 'error')
     : 'info';
 }
 

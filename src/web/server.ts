@@ -31,6 +31,34 @@ export function createWebServer(orchestrator: QueueOrchestrator): FastifyInstanc
   app.get('/api/status', { preHandler: authorize }, () => orchestrator.status());
   app.get('/api/config/effective', { preHandler: authorize }, () => orchestrator.effectiveConfig());
   app.get('/api/settings', { preHandler: authorize }, () => orchestrator.runtimeSettings());
+  app.get('/api/logs', { preHandler: authorize }, (request, reply) => {
+    const parsed = z
+      .object({
+        level: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('trace'),
+        limit: z.coerce.number().int().min(1).max(20_000).default(1_000),
+      })
+      .safeParse(request.query);
+    if (!parsed.success) return reply.code(400).send({ message: z.prettifyError(parsed.error) });
+    return orchestrator.logSnapshot(parsed.data.level, parsed.data.limit);
+  });
+  app.get('/api/logs/download', { preHandler: authorize }, (_request, reply) => {
+    const generatedAt = new Date().toISOString();
+    const filename = `immich-queue-orchestrator-diagnostics-${generatedAt.replaceAll(':', '-')}.json`;
+    return reply
+      .type('application/json; charset=utf-8')
+      .header('content-disposition', `attachment; filename="${filename}"`)
+      .send({
+        generatedAt,
+        status: orchestrator.status(),
+        settings: orchestrator.runtimeSettings(),
+        effectiveConfig: orchestrator.effectiveConfig(),
+        logs: orchestrator.logSnapshot('trace', 20_000),
+      });
+  });
+  app.delete('/api/logs', { preHandler: authorize }, (_request, reply) => {
+    orchestrator.clearLogs();
+    return reply.code(204).send();
+  });
   app.put('/api/settings', { preHandler: authorize }, async (request, reply) => {
     const parsed = RuntimeSettingsSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ message: z.prettifyError(parsed.error) });

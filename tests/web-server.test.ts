@@ -111,6 +111,27 @@ describe('web server security', () => {
     expect(release).toHaveBeenCalledWith('keep-managed-paused');
   });
 
+  it('serves and clears the authenticated diagnostic log buffer', async () => {
+    const clearLogs = vi.fn();
+    const logSnapshot = vi.fn().mockReturnValue({ level: 'debug', capacity: 1_000, dropped: 0, entries: [] });
+    const server = createServer({ clearLogs, logSnapshot });
+    const logs = await server.inject({
+      method: 'GET',
+      url: '/api/logs?level=warn&limit=50',
+      headers: { authorization: 'Bearer test-password' },
+    });
+    expect(logs.statusCode).toBe(200);
+    expect(logSnapshot).toHaveBeenCalledWith('warn', 50);
+
+    const cleared = await server.inject({
+      method: 'DELETE',
+      url: '/api/logs',
+      headers: { authorization: 'Bearer test-password' },
+    });
+    expect(cleared.statusCode).toBe(204);
+    expect(clearLogs).toHaveBeenCalledOnce();
+  });
+
 });
 
 function createServer(overrides: Record<string, unknown> = {}): ReturnType<typeof createWebServer> {
@@ -130,6 +151,8 @@ function createServer(overrides: Record<string, unknown> = {}): ReturnType<typeo
     resumeController: () => Promise.resolve(),
     release: () => Promise.resolve(),
     resolveAmbiguous: () => Promise.resolve(),
+    logSnapshot: () => ({ level: 'info', capacity: 1_000, dropped: 0, entries: [] }),
+    clearLogs: () => undefined,
     ...overrides,
   } as unknown as QueueOrchestrator;
   const server = createWebServer(orchestrator);

@@ -53,26 +53,30 @@ describe('runtime settings', () => {
     expect(settings.queues.every((queue) => queue.policy === 'managed' && queue.checkMissing)).toBe(true);
     expect(settings.automation.processingPriority).toBe('configured-order');
     expect(settings.loadGuard.monitorInIdle).toBe(false);
+    expect(settings.logging).toEqual({ level: 'info', retainedEntries: 1_000 });
     expect(
       settings.queues.filter((queue) => queue.stabilizeTransientCount).map((queue) => queue.queue),
     ).toEqual(['metadataExtraction', 'sidecar', 'duplicateDetection', 'facialRecognition']);
   });
 
-  it('fills new priority, stabilization, and idle CPU defaults in older settings files', () => {
+  it('fills new priority, stabilization, idle CPU, and logging defaults in older settings files', () => {
     const settings = JSON.parse(JSON.stringify(defaultRuntimeSettings(parseConfig({})))) as {
       automation: Record<string, unknown>;
       loadGuard: Record<string, unknown>;
+      logging?: Record<string, unknown>;
       queues: Array<Record<string, unknown>>;
     };
     delete settings.automation.processingPriority;
     delete settings.automation.transientCounterStabilizationEnabled;
     delete settings.loadGuard.monitorInIdle;
+    delete settings.logging;
     for (const queue of settings.queues) delete queue.stabilizeTransientCount;
 
     const migrated = parseRuntimeSettings(settings);
     expect(migrated.automation.processingPriority).toBe('configured-order');
     expect(migrated.automation.transientCounterStabilizationEnabled).toBe(true);
     expect(migrated.loadGuard.monitorInIdle).toBe(false);
+    expect(migrated.logging).toEqual({ level: 'info', retainedEntries: 1_000 });
     expect(migrated.queues.filter((queue) => queue.stabilizeTransientCount).map((queue) => queue.queue)).toEqual([
       'metadataExtraction',
       'sidecar',

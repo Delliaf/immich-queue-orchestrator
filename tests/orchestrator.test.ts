@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { parseConfig, type AppConfig } from '../src/config/schema.js';
 import { QueueOrchestrator, type AppLogger } from '../src/controller/orchestrator.js';
 import type { QueueName, QueueSnapshot } from '../src/domain/queues.js';
-import type { ImmichApi } from '../src/immich/client.js';
+import { ImmichApiError, type ImmichApi } from '../src/immich/client.js';
 import type { QueueJob, ServerFeatures, ServerStatistics, ServerVersion } from '../src/immich/schemas.js';
 import { CpuMonitor } from '../src/monitoring/cpu.js';
 import { defaultRuntimeSettings } from '../src/settings/schema.js';
@@ -201,6 +201,7 @@ describe('QueueOrchestrator', () => {
     const fixture = await createFixture(api, makeConfig(true));
     await fixture.orchestrator.processBacklog();
     await fixture.orchestrator.pollNow();
+    await fixture.orchestrator.pollNow();
 
     api.addUpload(1);
     await fixture.orchestrator.pollNow();
@@ -342,6 +343,48 @@ describe('QueueOrchestrator', () => {
     await fixture.orchestrator.stop();
   });
 
+  it('defers an Immich missing scan while the queue is already active instead of treating HTTP 400 as ambiguous', async () => {
+    const api = new FakeImmichApi(makeQueue(false, 0));
+    api.startError = new ImmichApiError(
+      'Immich returned HTTP 400: PUT /jobs/metadataExtraction',
+      400,
+      JSON.stringify({ message: 'Job is already running', statusCode: 400 }),
+    );
+    const fixture = await createFixture(api, makeConfig(true));
+    await fixture.orchestrator.processBacklog();
+    await fixture.orchestrator.pollNow();
+    await fixture.orchestrator.pollNow();
+
+    expect(fixture.orchestrator.status().state?.run?.phase).toBe('DISCOVERING');
+    expect(fixture.orchestrator.status().state?.run?.stages[0]?.discoveryStatus).toBe('pending');
+    expect(api.startCalls).toBe(1);
+
+    api.startError = null;
+    fixture.clock.advance(1);
+    await fixture.orchestrator.pollNow();
+    expect(fixture.orchestrator.status().state?.run?.stages[0]?.discoveryStatus).toBe('running');
+    expect(api.startCalls).toBe(2);
+    await fixture.orchestrator.stop();
+  });
+
+  it('pauses on a definitive Immich client rejection instead of calling it ambiguous', async () => {
+    const api = new FakeImmichApi(makeQueue(false, 0));
+    api.startError = new ImmichApiError(
+      'Immich returned HTTP 403: PUT /jobs/metadataExtraction',
+      403,
+      JSON.stringify({ message: 'Forbidden' }),
+    );
+    const fixture = await createFixture(api, makeConfig(true));
+    await fixture.orchestrator.processBacklog();
+    await fixture.orchestrator.pollNow();
+    await fixture.orchestrator.pollNow();
+
+    expect(fixture.orchestrator.status().state?.run?.phase).toBe('PAUSED_BY_OPERATOR');
+    expect(fixture.orchestrator.status().state?.run?.lastError).toContain('Forbidden');
+    expect(api.startCalls).toBe(1);
+    await fixture.orchestrator.stop();
+  });
+
   it('commits an idempotent pause action from observed state after restart', async () => {
     const api = new FakeImmichApi(makeQueue(false, 0));
     const config = makeConfig(false);
@@ -418,6 +461,7 @@ class FakeImmichApi implements ImmichApi {
   readonly mutations: string[] = [];
   startCalls = 0;
   failStart = false;
+  startError: Error | null = null;
   missingOnDiscovery = 0;
   discoveryPending = false;
   statistics: ServerStatistics = { photos: 100, videos: 10, usage: 1_000_000 };
@@ -460,6 +504,7 @@ class FakeImmichApi implements ImmichApi {
   }
   startMissing(): Promise<void> {
     this.startCalls += 1;
+    if (this.startError) return Promise.reject(this.startError);
     if (this.failStart) return Promise.reject(new Error('socket closed after request'));
     this.discoveryPending = true;
     return Promise.resolve();
@@ -695,8 +740,12 @@ function makeQueueNamed(name: QueueName, isPaused: boolean, waiting: number): Qu
 }
 
 const silentLogger: AppLogger = {
+  trace: () => undefined,
   debug: () => undefined,
   info: () => undefined,
   warn: () => undefined,
   error: () => undefined,
+  configure: () => undefined,
+  snapshot: () => ({ level: 'error', capacity: 100, dropped: 0, entries: [] }),
+  clear: () => undefined,
 };

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { QueueNameSchema, type QueueName, type QueueSnapshot } from '../domain/queues.js';
+import type { AppLogger } from '../utils/logger.js';
 import {
   QueueJobListSchema,
   LegacyQueueResponseSchema,
@@ -45,6 +46,7 @@ export interface ImmichClientOptions {
   apiKey: string;
   timeoutMs: number;
   fetchImplementation?: typeof fetch;
+  logger?: AppLogger;
 }
 
 export class ImmichClient implements ImmichApi {
@@ -52,6 +54,7 @@ export class ImmichClient implements ImmichApi {
   readonly #apiKey: string;
   readonly #timeoutMs: number;
   readonly #fetch: typeof fetch;
+  readonly #logger: AppLogger | undefined;
   #unknownQueueNames: string[] = [];
 
   constructor(options: ImmichClientOptions) {
@@ -59,6 +62,7 @@ export class ImmichClient implements ImmichApi {
     this.#apiKey = options.apiKey;
     this.#timeoutMs = options.timeoutMs;
     this.#fetch = options.fetchImplementation ?? fetch;
+    this.#logger = options.logger;
   }
 
   getVersion(signal?: AbortSignal): Promise<ServerVersion> {
@@ -124,6 +128,9 @@ export class ImmichClient implements ImmichApi {
   }
 
   async #request<T>(path: string, schema: z.ZodType<T>, init: RequestInit = {}): Promise<T> {
+    const method = init.method ?? 'GET';
+    const startedAt = Date.now();
+    this.#logger?.trace('Immich API request started', { method, path });
     const timeoutSignal = AbortSignal.timeout(this.#timeoutMs);
     const signal = init.signal ? AbortSignal.any([init.signal, timeoutSignal]) : timeoutSignal;
     let response: Response;
@@ -139,19 +146,40 @@ export class ImmichClient implements ImmichApi {
         },
       });
     } catch (error) {
-      throw new ImmichApiError(`Immich request failed: ${init.method ?? 'GET'} ${path}`, undefined, undefined, {
+      this.#logger?.debug('Immich API request failed before a response', {
+        method,
+        path,
+        durationMs: Date.now() - startedAt,
+        error,
+      });
+      throw new ImmichApiError(`Immich request failed: ${method} ${path}`, undefined, undefined, {
         cause: error,
       });
     }
 
     const text = await response.text();
     if (!response.ok) {
+      this.#logger?.debug('Immich API request rejected', {
+        method,
+        path,
+        status: response.status,
+        durationMs: Date.now() - startedAt,
+        responseBody: text.slice(0, 1000),
+      });
       throw new ImmichApiError(
-        `Immich returned HTTP ${response.status}: ${init.method ?? 'GET'} ${path}`,
+        `Immich returned HTTP ${response.status}: ${method} ${path}`,
         response.status,
         text.slice(0, 1000),
       );
     }
+
+    this.#logger?.trace('Immich API request completed', {
+      method,
+      path,
+      status: response.status,
+      durationMs: Date.now() - startedAt,
+      responseBytes: text.length,
+    });
 
     const raw: unknown = text.length === 0 ? undefined : safeJson(text, path);
     const parsed = schema.safeParse(raw);

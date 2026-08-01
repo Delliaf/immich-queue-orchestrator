@@ -52,6 +52,7 @@ const StageRuntimeSchema = z.object({
   stabilizationSampleAt: z.string().nullable().default(null),
   stabilizationSampleCount: z.number().int().nonnegative().nullable().default(null),
   discoveryStartedAt: z.string().nullable().default(null),
+  discoveryRetryAt: z.string().nullable().default(null),
   discoveryCompletedAt: z.string().nullable().default(null),
   discoveryJobSeen: z.boolean().default(false),
   discoveryTimedOut: z.boolean().default(false),
@@ -73,6 +74,7 @@ export interface StageRuntime {
   stabilizationSampleAt: string | null;
   stabilizationSampleCount: number | null;
   discoveryStartedAt: string | null;
+  discoveryRetryAt: string | null;
   discoveryCompletedAt: string | null;
   discoveryJobSeen: boolean;
   discoveryTimedOut: boolean;
@@ -171,6 +173,7 @@ export const createStageRuntime = (stage: PipelineStage): StageRuntime => ({
   stabilizationSampleAt: null,
   stabilizationSampleCount: null,
   discoveryStartedAt: null,
+  discoveryRetryAt: null,
   discoveryCompletedAt: null,
   discoveryJobSeen: false,
   discoveryTimedOut: false,
@@ -193,6 +196,7 @@ export const resetStages = (stages: StageRuntime[]): StageRuntime[] =>
     stabilizationSampleAt: null,
     stabilizationSampleCount: null,
     discoveryStartedAt: null,
+    discoveryRetryAt: null,
     discoveryCompletedAt: null,
     discoveryJobSeen: false,
     discoveryTimedOut: false,

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Added configurable error, warning, normal, detailed, and maximum diagnostic logging levels.
+- Added a bounded redacted RAM log viewer and downloadable support report in the panel.
+- Added request timings, response details, queue observations, and controller-position tracing for diagnosing repeated passes.
+- Defer and retry missing scans when Immich explicitly reports `Job is already running`, while pausing on other definitive 4xx rejections instead of calling them ambiguous.
+- Added a direct-push `dev` workflow that publishes an amd64-only `:dev` image without test CI, Docker verification, QEMU, provenance, or SBOM generation.
+
 ## 0.3.0 - 2026-08-01
 
 - Added configurable processing priority: configured order or smallest stabilized backlog first with dependency preservation.

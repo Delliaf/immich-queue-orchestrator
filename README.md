@@ -17,6 +17,7 @@ A lightweight controller for Immich background queues on home servers with limit
 - supports `managed`, `always running`, and `ignored` policies for every queue;
 - optionally adapts the upload quiet period to the number of new assets and runs periodic missing checks;
 - shows live queues, discovered counts, CPU load, and all runtime settings in an embedded panel;
+- keeps a bounded, redacted in-memory log with normal, detailed, and maximum diagnostic levels and one-click report download;
 - writes durable state and settings only when their content changes;
 - never writes directly to Redis or PostgreSQL and does not require the Docker socket.
 
@@ -96,7 +97,9 @@ Installing or restarting a fresh container never resumes queues by itself. It wa
 
 ## Panel and settings
 
-The panel has separate **Overview**, **Queues**, **Automation**, **CPU load**, and **Advanced** tabs. Runtime settings are saved atomically to `/data/settings.json`; secrets and bootstrap networking remain in `.env` or the mounted YAML file. An unchanged save or polling tick does not rewrite the disk.
+The panel has separate **Overview**, **Queues**, **Automation**, **CPU load**, **Logs**, and **Advanced** tabs. Runtime settings are saved atomically to `/data/settings.json`; secrets and bootstrap networking remain in `.env` or the mounted YAML file. An unchanged save or polling tick does not rewrite the disk.
+
+Logging defaults to **Normal**. **Detailed** adds controller decisions and state transitions; **Maximum diagnostics** also records every polling cycle, queue snapshot, request path, status, duration, and rejected Immich response body. API keys, passwords, tokens, and authorization headers are redacted. The panel retains a configurable ring of 100–20,000 entries in RAM and can download a diagnostic JSON report containing the current status, non-secret configuration, settings, and retained log. The on-screen view fetches only the latest 1,000 entries to stay responsive.
 
 The default queue order is:
 
@@ -115,6 +118,10 @@ Every queue is `managed` and has **Check missing** enabled by default. Facial re
 Metadata extraction, sidecar, duplicate detection, and facial recognition have transient-counter stabilization enabled by default. A rapidly falling initial count is observed in 15-second windows for up to two minutes, and both the initial and stabilized values are shown. The queue policy, missing check, stabilization, quiet periods, polling, discovery timeout, optional adaptive delay, optional periodic discovery, priority strategy, and CPU guard can all be changed in the panel. Periodic discovery, adaptive quiet, and idle CPU display are disabled by default.
 
 Storage Template Migration and the system Migration queue are never part of automatic control. Immich runs storage migration as a separate long serial operation; use the Immich administration panel deliberately if it is ever required.
+
+## Fast development image
+
+Direct pushes to the `dev` branch publish `ghcr.io/delliaf/immich-queue-orchestrator:dev`. This workflow builds only `linux/amd64`, skips the test and Docker verification jobs, does not start QEMU, and reuses the GitHub build cache. It is intended for quick diagnostics before changes are promoted to a tested multi-architecture release.
 
 When autopilot is turned off, the panel asks what to do every time. The default choice keeps managed queues paused; the alternative restores the queue states captured when control began.
 

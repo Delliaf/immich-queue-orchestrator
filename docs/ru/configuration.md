@@ -1,6 +1,6 @@
 # Конфигурация
 
-<!-- translation-source: docs/configuration.md; source-sha256: 407a6bdea9448c11e22a53177b4091899bd9c5fb596b9d5b233f5cd8db608664 -->
+<!-- translation-source: docs/configuration.md; source-sha256: 702b23215b485ef21a0547248f84b584d58b3644646b409addae07202d484ca2 -->
 
 <!-- translation-source: docs/configuration.md; source-sha256: pending -->
 
@@ -20,7 +20,7 @@
 | `ORCHESTRATOR_ADMIN_PASSWORD` | Необязательный обычный пароль панели |
 | `ORCHESTRATOR_ADMIN_PASSWORD_FILE` | Необязательный файл с паролем панели |
 | `ORCHESTRATOR_HOST` / `ORCHESTRATOR_PORT` | Bind address и порт |
-| `LOG_LEVEL` | `debug`, `info`, `warn` или `error` |
+| `LOG_LEVEL` | Начальный `trace`, `debug`, `info`, `warn` или `error`; после startup используется сохранённая настройка панели |
 | `POLL_INTERVAL` | Начальный интервал активного polling |
 | `GUARDED_IDLE_POLL_INTERVAL` | Начальный интервал детектора загрузки, меньше 30 секунд |
 | `STANDBY_POLL_INTERVAL` | Начальный polling без вооружённого автопилота |
@@ -91,6 +91,20 @@
 `off` не считывает CPU. `observe` включает sampling только при discovery/processing, когда нагрузка полезна в панели. `throttle` дополнительно приостанавливает dispatch после устойчивой высокой нагрузки и продолжает после устойчивой низкой. Moving-average window должен быть не меньше sample interval, а порог resume — ниже порога pause.
 
 В standby, guarded idle и при загрузке CPU sampling по умолчанию выключен. Переключатель «Показывать CPU в простое» включает sampling в unarmed и guarded idle через уже существующий in-process sampler с заданным интервалом, но это естественно добавляет фоновые пробуждения. При upload capture sampling всё равно выключается. В image нет отдельного периодического Node.js healthcheck process.
+
+### Логи и диагностический отчёт
+
+| Уровень | Назначение |
+|---|---|
+| Только ошибки | Только failures |
+| Предупреждения и ошибки | Failures и ситуации, требующие внимания |
+| Обычные | Постоянный режим по умолчанию; основные действия и lifecycle events |
+| Подробные | Решения контроллера, переходы состояний и тела отклонённых API responses |
+| Максимальная диагностика | Каждый controller poll, снимок очередей и запрос Immich API со status, duration и размером response |
+
+Logger хранит ограниченное кольцо в RAM от 100 до 20 000 записей; лёгкое значение по умолчанию — 1000. Число перезаписанных записей видно в панели. API keys, authorization values, cookies, пароли, secrets и tokens рекурсивно скрываются до попадания в кольцо или stdout контейнера. Отдельный log file приложение не создаёт. Docker может сохранять stdout по правилам своего logging driver.
+
+Кнопка «Скачать диагностический отчёт» выгружает JSON с текущим controller status, рабочими настройками, несекретной начальной конфигурацией и всем сохранённым журналом. Панель показывает максимум 1000 последних записей. Для обычного поиска проблемы используйте «Подробные», а «Максимальную диагностику» включайте только на время воспроизведения polling/API ошибки.
 
 ## Начальные safety switches
 

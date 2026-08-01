@@ -8,7 +8,7 @@ import {
   type QueueName,
   type QueueSnapshot,
 } from '../domain/queues.js';
-import type { ImmichApi } from '../immich/client.js';
+import { ImmichApiError, type ImmichApi } from '../immich/client.js';
 import type { ServerFeatures, ServerStatistics, ServerVersion } from '../immich/schemas.js';
 import type { CpuMonitor, CpuStatus } from '../monitoring/cpu.js';
 import { resolvePanelAuthentication, type EffectivePanelAuthentication } from '../security/authentication.js';
@@ -27,16 +27,13 @@ import {
 } from '../state/model.js';
 import type { StateStore } from '../state/store.js';
 import { ConflictError, ControlDisabledError, errorMessage } from '../utils/errors.js';
+import type { AppLogger, LogLevel, LogSnapshot } from '../utils/logger.js';
 import { SerialExecutor } from '../utils/serial.js';
 
-export interface AppLogger {
-  debug(message: string, context?: Record<string, unknown>): void;
-  info(message: string, context?: Record<string, unknown>): void;
-  warn(message: string, context?: Record<string, unknown>): void;
-  error(message: string, context?: Record<string, unknown>): void;
-}
+export type { AppLogger } from '../utils/logger.js';
 
 export type ReleaseStrategy = 'keep-managed-paused' | 'restore-original';
+type StartMissingResult = 'started' | 'deferred' | 'blocked';
 
 export interface OrchestratorOptions {
   config: AppConfig;
@@ -204,6 +201,14 @@ export class QueueOrchestrator {
     return structuredClone(this.#settings);
   }
 
+  logSnapshot(minimumLevel?: LogLevel, limit?: number): LogSnapshot {
+    return this.#logger.snapshot(minimumLevel, limit);
+  }
+
+  clearLogs(): void {
+    this.#logger.clear();
+  }
+
   updateSettings(input: unknown): Promise<boolean> {
     return this.#serial.run(async () => {
       const settings = parseRuntimeSettings(input);
@@ -215,6 +220,13 @@ export class QueueOrchestrator {
       const changed = this.#settingsStore ? await this.#settingsStore.save(settings) : JSON.stringify(settings) !== JSON.stringify(this.#settings);
       this.#settings = settings;
       this.#cpu.configure(settings.loadGuard.sampleIntervalMs, settings.loadGuard.movingAverageWindowMs);
+      this.#logger.configure(settings.logging.level, settings.logging.retainedEntries);
+      if (changed) {
+        this.#logger.info('Runtime settings updated', {
+          logLevel: settings.logging.level,
+          retainedLogEntries: settings.logging.retainedEntries,
+        });
+      }
       return changed;
     });
   }
@@ -345,16 +357,30 @@ export class QueueOrchestrator {
         await this.#journal.appendTransition(action, 'COMMITTED', 'operator assumed request was sent', this.#now());
       } else {
         await this.#journal.appendTransition(action, 'FAILED', 'operator explicitly requested retry', this.#now());
-        run.phase = 'RUNNING_STAGE';
         run.lastError = null;
-        const committed = await this.#startMissing(run, action.queue, 'operator explicitly retried ambiguous missing pass');
-        if (!committed) return;
+        const outcome = await this.#startMissing(run, action.queue, 'operator explicitly retried ambiguous missing pass');
+        if (outcome === 'blocked') return;
+        if (outcome === 'deferred') {
+          const deferredStage = run.stages.find(
+            (candidate) => candidate.queue === action.queue && !candidate.repairAttempted,
+          );
+          if (deferredStage) {
+            deferredStage.discoveryStatus = 'pending';
+            deferredStage.discoveryRetryAt = new Date(
+              this.#now().getTime() + this.#settings.automation.discoverySettleMs,
+            ).toISOString();
+          }
+          run.phase = 'DISCOVERING';
+          await this.#saveState();
+          return;
+        }
       }
       const stage = run.stages.find((candidate) => candidate.queue === action.queue && !candidate.repairAttempted);
       if (stage) {
         stage.repairAttempted = true;
         stage.discoveryStatus = 'running';
         stage.discoveryStartedAt = this.#nowIso();
+        stage.discoveryRetryAt = null;
         stage.discoveryJobSeen = false;
       }
       run.phase = 'DISCOVERING';
@@ -374,11 +400,23 @@ export class QueueOrchestrator {
   }
 
   async #runTick(): Promise<void> {
+    const before = this.#diagnosticPosition();
+    const startedAt = Date.now();
+    this.#logger.trace('Controller tick started', before);
     this.#syncCpuMonitoring();
     try {
       await this.#tick();
     } finally {
       this.#syncCpuMonitoring();
+      const after = this.#diagnosticPosition();
+      if (JSON.stringify(before) !== JSON.stringify(after)) {
+        this.#logger.debug('Controller state changed', { before, after, durationMs: Date.now() - startedAt });
+      } else {
+        this.#logger.trace('Controller tick completed without a state change', {
+          ...after,
+          durationMs: Date.now() - startedAt,
+        });
+      }
     }
   }
 
@@ -633,6 +671,8 @@ export class QueueOrchestrator {
     }
 
     if (stage.discoveryStatus === 'pending') {
+      if (stage.discoveryRetryAt && this.#now().getTime() < Date.parse(stage.discoveryRetryAt)) return;
+      stage.discoveryRetryAt = null;
       if (queue.isPaused) {
         await this.#setQueuePaused(run, queue, false, `open ${stage.queue} for missing-media discovery`);
       }
@@ -651,10 +691,24 @@ export class QueueOrchestrator {
         await this.#saveState();
         return;
       }
-      const committed = await this.#startMissing(run, stage.queue, `inventory missing media for ${stage.id}`);
-      if (!committed) return;
+      if (queue.statistics.active > 0) {
+        this.#logger.trace('Missing-media scan is waiting for active queue work to finish', {
+          runId: run.id,
+          queue: stage.queue,
+          active: queue.statistics.active,
+        });
+        return;
+      }
+      const outcome = await this.#startMissing(run, stage.queue, `inventory missing media for ${stage.id}`);
+      if (outcome === 'deferred') {
+        stage.discoveryRetryAt = new Date(this.#now().getTime() + this.#settings.automation.discoverySettleMs).toISOString();
+        await this.#saveState();
+        return;
+      }
+      if (outcome === 'blocked') return;
       const now = this.#nowIso();
       stage.discoveryStatus = 'running';
+      stage.discoveryRetryAt = null;
       stage.discoveryStartedAt = now;
       stage.discoveryCompletedAt = null;
       stage.discoveryJobSeen = false;
@@ -763,6 +817,7 @@ export class QueueOrchestrator {
     stage.stabilizationStartedAt = null;
     stage.stabilizationSampleAt = null;
     stage.stabilizationSampleCount = null;
+    stage.discoveryRetryAt = null;
     stage.discoveryCompletedAt = this.#nowIso();
     stage.discoveryTimedOut = timedOut;
     run.discoveryStageIndex += 1;
@@ -914,13 +969,21 @@ export class QueueOrchestrator {
   }
 
   async #launchRepair(run: RunState, stage: StageRuntime): Promise<void> {
+    if (stage.discoveryRetryAt && this.#now().getTime() < Date.parse(stage.discoveryRetryAt)) return;
+    stage.discoveryRetryAt = null;
     const queue = this.#queueByName(stage.queue);
     if (!queue || pendingJobs(queue) !== 0) {
       throw new ConflictError(`Refusing missing repair while ${stage.queue} has pending work`);
     }
-    const committed = await this.#startMissing(run, stage.queue, `missing repair for stage ${stage.id}`);
-    if (!committed) return;
+    const outcome = await this.#startMissing(run, stage.queue, `missing repair for stage ${stage.id}`);
+    if (outcome === 'deferred') {
+      stage.discoveryRetryAt = new Date(this.#now().getTime() + this.#settings.automation.discoverySettleMs).toISOString();
+      await this.#saveState();
+      return;
+    }
+    if (outcome === 'blocked') return;
     stage.repairAttempted = true;
+    stage.discoveryRetryAt = null;
     stage.status = 'repair-settling';
     stage.quietSince = null;
     stage.settleUntil = new Date(this.#now().getTime() + this.#settings.automation.discoverySettleMs).toISOString();
@@ -1108,7 +1171,7 @@ export class QueueOrchestrator {
     run.updatedAt = this.#nowIso();
   }
 
-  async #startMissing(run: RunState, queue: QueueName, reason: string): Promise<boolean> {
+  async #startMissing(run: RunState, queue: QueueName, reason: string): Promise<StartMissingResult> {
     const snapshot = this.#queueByName(queue);
     if (!snapshot) throw new ConflictError(`Queue ${queue} is unavailable`);
     const prepared = await this.#journal.prepare(
@@ -1122,17 +1185,57 @@ export class QueueOrchestrator {
       },
       this.#now(),
     );
+    this.#logger.debug('Missing-media scan request prepared', {
+      runId: run.id,
+      queue,
+      reason,
+      actionId: prepared.actionId,
+      queueSnapshot: snapshot,
+    });
     try {
       await this.#api.startMissing(queue);
       await this.#journal.appendTransition(prepared, 'VERIFIED', null, this.#now());
       await this.#journal.appendTransition(prepared, 'COMMITTED', null, this.#now());
-      return true;
+      this.#logger.debug('Missing-media scan request accepted', { runId: run.id, queue, actionId: prepared.actionId });
+      return 'started';
     } catch (error) {
+      if (isAlreadyRunningResponse(error)) {
+        const detail = immichResponseMessage(error) ?? 'Immich reported that the queue job is already running';
+        await this.#journal.appendTransition(prepared, 'FAILED', detail, this.#now());
+        this.#logger.info('Missing-media scan start deferred because the queue is active', {
+          runId: run.id,
+          queue,
+          actionId: prepared.actionId,
+          ...immichErrorContext(error),
+        });
+        return 'deferred';
+      }
+      if (error instanceof ImmichApiError && error.status !== undefined && error.status >= 400 && error.status < 500) {
+        const detail = immichResponseMessage(error);
+        await this.#journal.appendTransition(prepared, 'FAILED', errorMessage(error), this.#now());
+        run.phase = 'PAUSED_BY_OPERATOR';
+        run.lastError = `Immich rejected missing scan for ${queue}: ${detail ?? error.message}`;
+        this.#requireState().pausedByOperator = true;
+        await this.#saveState();
+        this.#logger.warn('Missing-media scan request was rejected; controller paused', {
+          runId: run.id,
+          queue,
+          actionId: prepared.actionId,
+          ...immichErrorContext(error),
+        });
+        return 'blocked';
+      }
       await this.#journal.appendTransition(prepared, 'AMBIGUOUS', errorMessage(error), this.#now());
       run.phase = 'AMBIGUOUS_START';
       run.lastError = `Ambiguous start missing for ${queue}: ${errorMessage(error)}`;
       await this.#saveState();
-      return false;
+      this.#logger.warn('Missing-media scan request failed; operator decision required', {
+        runId: run.id,
+        queue,
+        actionId: prepared.actionId,
+        ...immichErrorContext(error),
+      });
+      return 'blocked';
     }
   }
 
@@ -1313,6 +1416,15 @@ export class QueueOrchestrator {
       this.#serverStatistics = statistics;
       this.#apiConnected = true;
       this.#lastPollError = null;
+      this.#logger.trace('Immich observation refreshed', {
+        assets: assetCount(statistics),
+        usage: statistics.usage,
+        queues: queues.map((queue) => ({
+          name: queue.name,
+          isPaused: queue.isPaused,
+          statistics: queue.statistics,
+        })),
+      });
     } catch (error) {
       this.#apiConnected = false;
       this.#lastPollError = errorMessage(error);
@@ -1410,6 +1522,32 @@ export class QueueOrchestrator {
     }
   }
 
+  #diagnosticPosition(): Record<string, unknown> {
+    const run = this.#state?.run;
+    const stageIndex = run?.phase === 'DISCOVERING' ? run.discoveryStageIndex : run?.currentStageIndex;
+    const stage = run && stageIndex !== undefined ? run.stages[stageIndex] : undefined;
+    return {
+      runId: run?.id ?? null,
+      mode: run?.mode ?? null,
+      phase: run?.phase ?? 'IDLE',
+      currentStageIndex: run?.currentStageIndex ?? null,
+      discoveryStageIndex: run?.discoveryStageIndex ?? null,
+      stage: stage
+        ? {
+            id: stage.id,
+            queue: stage.queue,
+            status: stage.status,
+            discoveryStatus: stage.discoveryStatus,
+            discoveryRetryAt: stage.discoveryRetryAt,
+            inventoryCount: stage.inventoryCount,
+          }
+        : null,
+      assets: this.#serverStatistics ? assetCount(this.#serverStatistics) : null,
+      pendingTotal: this.#totalPending(),
+      apiConnected: this.#apiConnected,
+    };
+  }
+
   #queueByName(name: QueueName): QueueSnapshot | undefined {
     return this.#queues.find((queue) => queue.name === name);
   }
@@ -1454,6 +1592,39 @@ export class QueueOrchestrator {
 }
 
 const assetCount = (statistics: ServerStatistics): number => statistics.photos + statistics.videos;
+
+function immichErrorContext(error: unknown): Record<string, unknown> {
+  if (error instanceof ImmichApiError) {
+    return {
+      error: error.message,
+      status: error.status ?? null,
+      responseBody: error.responseBody ?? null,
+      cause: error.cause,
+    };
+  }
+  return { error: errorMessage(error), cause: error instanceof Error ? error.cause : undefined };
+}
+
+function immichResponseMessage(error: ImmichApiError): string | null {
+  if (!error.responseBody) return null;
+  try {
+    const parsed = JSON.parse(error.responseBody) as { message?: unknown; error?: unknown };
+    if (Array.isArray(parsed.message)) return parsed.message.map(String).join('; ');
+    if (typeof parsed.message === 'string') return parsed.message;
+    if (typeof parsed.error === 'string') return parsed.error;
+  } catch {
+    // The response is still included verbatim in the diagnostic context.
+  }
+  return error.responseBody;
+}
+
+function isAlreadyRunningResponse(error: unknown): error is ImmichApiError {
+  return (
+    error instanceof ImmichApiError &&
+    error.status === 400 &&
+    /already running/i.test(immichResponseMessage(error) ?? '')
+  );
+}
 
 async function wait(milliseconds: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted) return;

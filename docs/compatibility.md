@@ -28,6 +28,8 @@ Storage Template Migration is intentionally excluded. In the validated server it
 
 The endpoint itself is non-idempotent and has no replacement bulk-start endpoint in the validated version. Ambiguous delivery requires operator confirmation rather than an automatic retry.
 
+Immich may explicitly reject a start with HTTP 400 when that queue is already active. A response body containing `Job is already running` defers the missing scan until active queue work ends, then the controller retries after a short backoff. An existing `QueueAll` scan is adopted only when job inspection identifies it. Other explicit 4xx responses pause the controller and retain their redacted body in diagnostics; only failures without a conclusive client response use the ambiguous operator gate.
+
 ## Counter limitations
 
 - `completed` and `failed` depend on Immich retention policy.

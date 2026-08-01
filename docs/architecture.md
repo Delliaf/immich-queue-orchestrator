@@ -72,3 +72,9 @@ After a crash, idempotent actions are reconciled against observed state. A missi
 Managed queues are already paused in guarded idle. Statistics polling detects asset growth within the configured interval, which is validated below 30 seconds. An upload during any active pass pauses dispatch immediately, then restarts the full inventory after fixed or optional asset-count-adjusted quiet time.
 
 Active discovery/processing normally polls every 5 seconds, guarded idle every 10 seconds, and standby every 30 seconds. CPU sampling normally exists only during phases where it is displayed or can throttle dispatch; an explicit setting can keep the same sampler active in idle. There is no separate Node.js healthcheck process.
+
+## Observability
+
+One in-process structured logger writes accepted entries to container stdout and to a bounded RAM ring. Normal mode records lifecycle actions, Detailed adds changes in the controller position and rejected Immich calls, and Maximum adds per-poll observations and request timings. A state-position record includes run and phase identifiers, discovery and processing indexes, current stage status, asset count, pending count, and API connectivity, which makes repeated discovery loops directly visible.
+
+Sensitive context keys are redacted before both outputs. The application does not add periodic disk writes for logs; the diagnostic HTTP endpoint clones the retained ring only on demand. Its report adds current state and non-secret settings/configuration so a failure can be reproduced without requesting API credentials.
