@@ -1,0 +1,15 @@
+version: 1
+mode: autopilot
+dryRun: false
+control:
+  enabled: true
+api:
+  url: http://127.0.0.1:32283/api
+  allowLegacyStart: false
+server:
+  host: 127.0.0.1
+  port: 18080
+autopilot:
+  autoEndAfter: 30m
+loadGuard:
+  mode: observe

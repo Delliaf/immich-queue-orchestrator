@@ -1,0 +1,46 @@
+services:
+  immich-queue-orchestrator:
+    # Replace with the published GHCR image after the first release.
+    build: .
+    image: immich-queue-orchestrator:local
+    container_name: immich_queue_orchestrator
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - 127.0.0.1:8080:8080
+    environment:
+      CONFIG_FILE: /config/orchestrator.yml
+      DATA_DIR: /data
+      IMMICH_API_KEY_FILE: /run/secrets/immich_api_key
+      ORCHESTRATOR_ADMIN_PASSWORD_FILE: /run/secrets/orchestrator_admin_password
+      LOG_LEVEL: info
+    volumes:
+      - ./orchestrator.yml:/config/orchestrator.yml:ro
+      - ./orchestrator-data:/data
+    secrets:
+      - immich_api_key
+      - orchestrator_admin_password
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    mem_limit: 192m
+    cpus: 0.25
+    networks:
+      - immich
+
+secrets:
+  immich_api_key:
+    file: ./secrets/immich_api_key.txt
+  orchestrator_admin_password:
+    file: ./secrets/orchestrator_admin_password.txt
+
+networks:
+  immich:
+    # Use the same network as immich-server. If this service is pasted into the
+    # official Immich compose file, remove external/name and use its default network.
+    external: true
+    name: immich_default

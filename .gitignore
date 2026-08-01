@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+data/
+config/orchestrator.yml
+.tmp-*/
+/orchestrator.yml
+/orchestrator-data/
+/secrets/
+!.github/

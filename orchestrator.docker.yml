@@ -1,0 +1,50 @@
+version: 1
+mode: autopilot
+dryRun: false
+
+# Safe on a fresh install: the controller is allowed to act, but newInstallAction=wait
+# means it will not touch queues until the operator explicitly arms autopilot.
+control:
+  enabled: true
+  resumePersistedRun: true
+  newInstallAction: wait
+
+api:
+  url: http://immich-server:2283/api
+  timeout: 10s
+  allowLegacyStart: false
+  strictMajorVersion: true
+  supportedMajorVersions: [3]
+
+server:
+  host: 0.0.0.0
+  port: 8080
+  trustProxy: false
+  # auto: a non-empty ORCHESTRATOR_ADMIN_PASSWORD enables login; no password means trusted-network mode.
+  authentication: auto
+
+scheduler:
+  pollInterval: 5s
+  guardedIdlePollInterval: 10s
+  standbyPollInterval: 30s
+  startSettlePeriod: 10s
+  quietPeriod: 30s
+
+capture:
+  uploadQuietPeriod: 1m
+
+autopilot:
+  available: true
+  autoEndAfter: 30m
+  minimumCaptureTime: 1m
+
+loadGuard:
+  mode: observe
+  sampleInterval: 2s
+  movingAverageWindow: 30s
+
+recovery:
+  startupPolicy: reconcile
+  idlePolicy: restore-original
+  manualOverridePolicy: stop-controller
+  ambiguousStartPolicy: require-operator
