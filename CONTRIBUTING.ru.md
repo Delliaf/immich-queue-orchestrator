@@ -1,10 +1,10 @@
 # Contributing
 
-<!-- translation-source: CONTRIBUTING.md; source-sha256: 32a119effdadc36a37396d80777c794c1ac0396ef96051b574f2a2a73a167ae1 -->
+<!-- translation-source: CONTRIBUTING.md; source-sha256: 53b6b082452a556bc96d148d48e1466e249a2d1ab1a4d517c04d83528cd3b8f0 -->
 
 [English](CONTRIBUTING.md)
 
-Требования: Node.js 22+, npm 10+.
+Требования: Node.js 24 LTS или новее, npm 10+.
 
 ```bash
 npm ci

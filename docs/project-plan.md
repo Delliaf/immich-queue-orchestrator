@@ -4,7 +4,7 @@
 
 ## Status
 
-Version `0.1.1` implements the minimum safe orchestrator and is published for `linux/amd64` and `linux/arm64`. The API contract baseline is Immich `v3.1.0`. Compatibility with queue endpoints must be revalidated for later Immich major versions before strict control is enabled.
+Version `0.1.2` implements the minimum safe orchestrator and is published for `linux/amd64` and `linux/arm64`. The API contract baseline is Immich `v3.1.0`. Compatibility with queue endpoints must be revalidated for later Immich major versions before strict control is enabled.
 
 ## Product goal
 
@@ -31,7 +31,7 @@ Provide the manual workflow used on small home servers as a lightweight, recover
 
 ## Resource model
 
-- One Node.js process with a 64 MiB heap target.
+- One Node.js 24 LTS process with a 64 MiB heap target.
 - Adaptive polling: active, guarded-idle, and standby intervals.
 - CPU sampling only while processing, when the sample can affect dispatch.
 - Change-only state persistence to avoid unnecessary disk writes.

@@ -4,7 +4,7 @@
 
 An independent controller for Immich background queues on home servers with limited CPU and memory.
 
-> Status: early release `0.1.1`. API contracts were validated against Immich `v3.1.0`. Start with `dryRun: true` on a real library and keep a backup.
+> Status: early release `0.1.2`. API contracts were validated against Immich `v3.1.0`. Start with `dryRun: true` on a real library and keep a backup.
 
 ## What it does
 
