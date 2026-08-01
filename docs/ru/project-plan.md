@@ -1,6 +1,6 @@
 # План проекта
 
-<!-- translation-source: docs/project-plan.md; source-sha256: ceb2072ddf80c690d8e8f89068d919c36eb6856f88e45ca0d0f8bf8225afbf37 -->
+<!-- translation-source: docs/project-plan.md; source-sha256: 8fa93623ee765088885eeeb98a10d76611aa2b9eff4b35a295f0f054d53ab32e -->
 
 <!-- translation-source: docs/project-plan.md; source-sha256: pending -->
 
@@ -8,7 +8,7 @@
 
 ## Статус
 
-Версия `0.2.0` реализует inventory-first workflow и рабочие настройки через панель. Baseline API — Immich `v3.1.0`; queue endpoints нужно повторно проверять для следующих major-версий до включения strict control.
+Версия `0.2.1` реализует inventory-first workflow и рабочие настройки через панель. Baseline API — Immich `v3.1.0`; queue endpoints нужно повторно проверять для следующих major-версий до включения strict control.
 
 ## Цель продукта
 

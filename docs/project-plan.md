@@ -4,7 +4,7 @@
 
 ## Status
 
-Version `0.2.0` implements the inventory-first workflow and panel-managed automation settings. The API contract baseline is Immich `v3.1.0`; queue endpoints must be revalidated for later major versions before strict control is enabled.
+Version `0.2.1` implements the inventory-first workflow and panel-managed automation settings. The API contract baseline is Immich `v3.1.0`; queue endpoints must be revalidated for later major versions before strict control is enabled.
 
 ## Product goal
 

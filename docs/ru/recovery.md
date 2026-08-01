@@ -1,6 +1,6 @@
 # Восстановление
 
-<!-- translation-source: docs/recovery.md; source-sha256: db3a336cf401601ab469bd2056fc58821ce24a569a69e7d63198126494a5d050 -->
+<!-- translation-source: docs/recovery.md; source-sha256: 0ea2cb50031923ff8c835ff8dd47cd076e425455f0548ab1b4facb9110b3d16b -->
 
 <!-- translation-source: docs/recovery.md; source-sha256: pending -->
 
@@ -11,6 +11,7 @@
 - Нет persisted run: только наблюдение, очереди не меняются.
 - Есть незавершённый owned run и `resumePersistedRun: true`: journal сверяется и работа продолжается.
 - Discovery generator ещё существует: он принимается без повторного start.
+- В guarded-idle run сохранён старый список queues: безопасные idle stages перестраиваются и сразу запускается новая инвентаризация.
 - Повреждён `state.json`: файл сохраняется, контроллер становится read-only до ручного backup/repair.
 - Нет или повреждён `settings.json`: startup завершается ошибкой валидации, а настройки оператора не заменяются молча.
 

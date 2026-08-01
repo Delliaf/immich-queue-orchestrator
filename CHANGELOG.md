@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1 - 2026-08-01
+
+- Automatically starts the new inventory pass when upgrading an already armed guarded-idle autopilot run from the pre-inventory queue list.
+
 ## 0.2.0 - 2026-08-01
 
 - Changed autopilot and manual runs to scan all enabled Immich missing-work generators before sequential processing.

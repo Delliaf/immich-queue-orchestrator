@@ -1,6 +1,6 @@
 # Immich Queue Orchestrator
 
-<!-- translation-source: README.md; source-sha256: 34525348259250eac804213fd56ed74593e7dcd5112b918955bed67b63ea102c -->
+<!-- translation-source: README.md; source-sha256: b48f6813d71b79df628ab953b976c401ef24e6fe6e8e6cca1b2f7c4240ff92ed -->
 
 <!-- translation-source: README.md; source-sha256: pending -->
 
@@ -8,7 +8,7 @@
 
 Лёгкий контроллер фоновых очередей Immich для домашних серверов с ограниченными CPU и RAM.
 
-> Статус: ранний релиз `0.2.0`. Контракты проверены по Immich `v3.1.0`. Храните актуальную резервную копию и сначала проверьте работу со своей версией Immich.
+> Статус: ранний релиз `0.2.1`. Контракты проверены по Immich `v3.1.0`. Храните актуальную резервную копию и сначала проверьте работу со своей версией Immich.
 
 ## Что он делает
 

@@ -4,7 +4,7 @@
 
 A lightweight controller for Immich background queues on home servers with limited CPU and memory.
 
-> Status: early release `0.2.0`. API contracts were validated against Immich `v3.1.0`. Keep a current backup and test against your Immich version before relying on unattended operation.
+> Status: early release `0.2.1`. API contracts were validated against Immich `v3.1.0`. Keep a current backup and test against your Immich version before relying on unattended operation.
 
 ## What it does
 
