@@ -29,5 +29,7 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ghcr.io/delliaf/immich-queue-orchestrator:dev
+          provenance: false
+          sbom: false
           cache-from: type=gha,scope=dev-amd64
           cache-to: type=gha,mode=max,scope=dev-amd64
