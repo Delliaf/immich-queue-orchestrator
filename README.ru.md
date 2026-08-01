@@ -1,10 +1,10 @@
 # Immich Queue Orchestrator
 
-<!-- translation-source: README.md; source-sha256: 1f4118bce36bf22191f71027842dc79cfdf2a3c230acb8dfad24ec946f9c7548 -->
+<!-- translation-source: README.md; source-sha256: bbe603c69fc6810c06197fb101552c767ce413d22e7c8c1d0d40b49e0a9c1266 -->
 
 [English](README.md)
 
-Безопасный внешний контроллер фоновых очередей Immich для домашних серверов с ограниченными CPU и RAM.
+Внешний контроллер фоновых очередей Immich для домашних серверов с ограниченными CPU и RAM.
 
 > Статус: ранний релиз `0.1.1`. Контракты проверены по Immich `v3.1.0`. До первого запуска на реальной библиотеке используйте `dryRun: true` и сделайте резервную копию.
 
@@ -42,7 +42,7 @@ GUARDED_IDLE (managed queues paused)
     image: ghcr.io/delliaf/immich-queue-orchestrator:latest
     environment:
       IMMICH_URL: http://immich-server:2283
-      IMMICH_API_KEY_FILE: /run/secrets/immich_api_key
+      IMMICH_API_KEY: ${IMMICH_QUEUE_ORCHESTRATOR_API_KEY}
       # Необязательно: пустое значение отключает вход по паролю.
       ORCHESTRATOR_ADMIN_PASSWORD: ${IMMICH_QUEUE_ORCHESTRATOR_ADMIN_PASSWORD:-}
       UPLOAD_QUIET_PERIOD: "30m"
@@ -52,8 +52,6 @@ GUARDED_IDLE (managed queues paused)
       NODE_OPTIONS: --max-old-space-size=64
     volumes:
       - immich_queue_orchestrator_data:/data
-    secrets:
-      - immich_api_key
     ports:
       - 127.0.0.1:8080:8080
     depends_on:
@@ -70,15 +68,11 @@ GUARDED_IDLE (managed queues paused)
     cpus: 0.25
 ```
 
-В существующие верхнеуровневые разделы `volumes:` и `secrets:` добавьте:
+В существующий верхнеуровневый раздел `volumes:` добавьте:
 
 ```yaml
 volumes:
   immich_queue_orchestrator_data:
-
-secrets:
-  immich_api_key:
-    environment: IMMICH_QUEUE_ORCHESTRATOR_API_KEY
 ```
 
 Скопируйте безопасный шаблон и заполните значения:
@@ -100,7 +94,7 @@ IMMICH_QUEUE_ORCHESTRATOR_ADMIN_PASSWORD=
 - указано любое непустое значение — панель запрашивает этот пароль;
 - требований к длине, цифрам или специальным символам нет.
 
-Это обычный пароль нашей панели, не API token и не ключ Immich. Настоящий `.env` исключён из Git и Docker build context; в репозитории остаётся только пустой `.env.example`. Если пароль не используется, панель показывает заметное предупреждение. Не публикуйте такой режим в интернет.
+API key и необязательный пароль панели читаются из `.env`. Настоящий `.env` исключён из Git и Docker build context; в репозитории остаётся только пустой `.env.example`. Пароль панели — обычный пароль нашей панели, не API token и не ключ Immich. Если пароль не используется, панель показывает заметное предупреждение. Не публикуйте такой режим в интернет.
 
 Затем выполните `docker compose up -d immich-queue-orchestrator`, откройте `http://127.0.0.1:8080`, при необходимости введите настроенный пароль панели и один раз нажмите «Включить автопилот». В armed idle управляемые очереди уже стоят на паузе, а появление загрузки обнаруживается обычно за 10 секунд и гарантированно настраивается ниже 30 секунд. Armed state хранится в named volume и переживает перезапуски.
 

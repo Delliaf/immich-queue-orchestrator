@@ -6,7 +6,7 @@ services:
     image: ghcr.io/delliaf/immich-queue-orchestrator:latest
     environment:
       IMMICH_URL: http://immich-server:2283
-      IMMICH_API_KEY_FILE: /run/secrets/immich_api_key
+      IMMICH_API_KEY: ${IMMICH_QUEUE_ORCHESTRATOR_API_KEY}
       # Optional: empty means no panel login in a trusted home network.
       ORCHESTRATOR_ADMIN_PASSWORD: ${IMMICH_QUEUE_ORCHESTRATOR_ADMIN_PASSWORD:-}
       UPLOAD_QUIET_PERIOD: 30m
@@ -17,8 +17,6 @@ services:
       NODE_OPTIONS: --max-old-space-size=64
     volumes:
       - immich_queue_orchestrator_data:/data
-    secrets:
-      - immich_api_key
     ports:
       - 127.0.0.1:8080:8080
     depends_on:
@@ -38,7 +36,3 @@ services:
 
 volumes:
   immich_queue_orchestrator_data:
-
-secrets:
-  immich_api_key:
-    environment: IMMICH_QUEUE_ORCHESTRATOR_API_KEY

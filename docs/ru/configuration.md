@@ -1,10 +1,10 @@
 # Конфигурация
 
-<!-- translation-source: docs/configuration.md; source-sha256: a38167ae941b1c8f54990fa64711911267840d762c2837b91ca9bf311546f948 -->
+<!-- translation-source: docs/configuration.md; source-sha256: dd4b518b0c29a5dc6e1f18f57b66372517b6ad01a2066853e63e74ce499c914e -->
 
 [English](../configuration.md)
 
-В опубликованном image есть встроенный `/app/orchestrator.docker.yml` для простого запуска. Пользовательский `/config/orchestrator.yml` можно подключить read-only и выбрать через `CONFIG_FILE`. Immich API key простой Compose передаёт как mounted secret. Опциональный пароль панели приходит из `.env`; настоящий `.env` не должен попадать в Git.
+В опубликованном image есть встроенный `/app/orchestrator.docker.yml` для простого запуска. Пользовательский `/config/orchestrator.yml` можно подключить read-only и выбрать через `CONFIG_FILE`. В простом Compose API key Immich и необязательный пароль панели читаются из `.env`; настоящий `.env` не должен попадать в Git. Расширенный Compose сохраняет файловые secrets как необязательный более строгий вариант.
 
 ## Bootstrap environment
 
@@ -13,8 +13,8 @@
 | `CONFIG_FILE` | Путь к YAML, default `./orchestrator.yml` локально и `/app/orchestrator.docker.yml` в image |
 | `DATA_DIR` | Durable state/journal, default `./data` или `/data` в image |
 | `IMMICH_URL` | Override `api.url` |
-| `IMMICH_API_KEY_FILE` | Рекомендуемый файл с Immich API key |
-| `IMMICH_API_KEY` | Менее безопасный inline secret |
+| `IMMICH_API_KEY` | API key Immich; используется в простом запуске через `.env` |
+| `IMMICH_API_KEY_FILE` | Необязательный файл с API key Immich для более строгого варианта |
 | `API_KEY` | Compose-friendly alias для `IMMICH_API_KEY` |
 | `ORCHESTRATOR_ADMIN_PASSWORD_FILE` | Файл с паролем панели |
 | `ORCHESTRATOR_ADMIN_PASSWORD` | Пароль панели прямо в environment |

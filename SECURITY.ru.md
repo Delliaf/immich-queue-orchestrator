@@ -1,6 +1,6 @@
 # Security policy
 
-<!-- translation-source: SECURITY.md; source-sha256: 2c6ab7b15f654802a6ce6363ec7085dd51a5d7e0871ec7518c828623d4e72012 -->
+<!-- translation-source: SECURITY.md; source-sha256: 4d46a158b04358f97fef786b9e39a31af6c989234667e36e39be0c1635b2efa7 -->
 
 [English](SECURITY.md)
 
@@ -8,7 +8,7 @@
 
 - Не публикуйте панель в интернет.
 - Default compose bind — `127.0.0.1`; при публикации за пределы доверенной сети используйте пароль панели и TLS/auth reverse proxy.
-- Передавайте Immich API key через Docker secret. Для строгой установки пароль панели также можно передать через `ORCHESTRATOR_ADMIN_PASSWORD_FILE`.
+- В простом варианте Immich API key и необязательный пароль панели хранятся в `.env`. В более строгом варианте их можно передать через `IMMICH_API_KEY_FILE` и `ORCHESTRATOR_ADMIN_PASSWORD_FILE`.
 - Храните реальные значения в `.env`, который исключён из Git и Docker build context; коммитьте только пустой `.env.example`.
 - На Linux ограничьте доступ к `.env` командой `chmod 600 .env`.
 - Запускайте read-only container без capabilities и без Docker socket.
